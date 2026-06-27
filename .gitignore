@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# Data artifacts (regenerable / large)
+data/processed/*.jsonl
+data/processed/*.json
+data/raw/*.jsonl
+!data/processed/.gitkeep
+!data/raw/.gitkeep
+
+# Model + run outputs
+checkpoints/*
+!checkpoints/.gitkeep
+outputs/*
+!outputs/.gitkeep
+
+# HF / torch caches
+.cache/
+
+# macOS
+.DS_Store
