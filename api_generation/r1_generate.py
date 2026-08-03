@@ -47,11 +47,15 @@ TEMPERATURE, TOP_P = 0.6, 0.95     # point 1: official; non-functional, seed dri
 REPEAT_PENALTY = 1.15
 BLACKHOLE_NGRAM, BLACKHOLE_REPEAT = 30, 3
 
-# point 3: NO system prompt — everything in the user turn.
+# point 3: NO system prompt — the canonical schema Section 5.1 instruction goes in the
+# user turn (verbatim, so it matches Claude/gpt-oss for cross-model comparability).
 USER_TEMPLATE = (
-    "Solve the following competition mathematics problem. Think carefully about the "
-    "approach before computing, and show your complete reasoning step by step. State "
-    "your final answer enclosed in \\boxed{{}}. Do not skip steps.\n\n"
+    "You are solving a competition mathematics problem.\n"
+    "Think carefully about the approach before computing.\n"
+    "Show your complete reasoning step by step.\n"
+    "Each step should be on a new line.\n"
+    "State your final answer clearly and enclose it in \\boxed{{}}.\n"
+    "Do not skip steps. Do not summarise. Show everything.\n\n"
     "Problem:\n{problem}")
 
 

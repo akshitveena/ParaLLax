@@ -182,6 +182,103 @@ def conclusion_corruption(full_text: str, gold: str, rng: random.Random) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Dose-parameterised corruption panel (the reasoning "toxicology")
+#
+# Each operator takes (full_text, rng, severity in [0,1]) and returns corrupted
+# text. These are NOT used by the training builder below (which keeps the original
+# 3 corruptions); they are the panel for the dose_response.py breakdown-point study.
+# The biology collapses to a few distinct mechanisms once you strip the target organ.
+# --------------------------------------------------------------------------- #
+_CONNECTIVES = re.compile(
+    r"\b(therefore|thus|hence|so|since|because|then|consequently|"
+    r"as a result|it follows that|which means|implies|we get|we have|"
+    r"this gives|note that|first|second|third|next|finally)\b", re.I)
+_INTERIOR_NUM = re.compile(r"(?<![\\\w])-?\d+(?:\.\d+)?")
+
+
+def diffuse_mask(full_text: str, rng: random.Random, severity: float = 0.15) -> str:
+    """Oxidative analog: mask a fraction `severity` of response tokens, untargeted."""
+    think, response = split_think_response(full_text)
+    toks = response.split()
+    if not toks:
+        return full_text
+    k = min(len(toks), max(1, int(len(toks) * severity)))
+    for i in rng.sample(range(len(toks)), k):
+        toks[i] = "[MASK]"
+    return _reassemble(think, " ".join(toks))
+
+
+def region_excise(full_text: str, rng: random.Random, severity: float = 0.3) -> str:
+    """Necrosis analog: delete one CONTIGUOUS block of interior steps (a lesion)."""
+    think, response = split_think_response(full_text)
+    steps = segment_steps(response)
+    if len(steps) < 4:
+        return full_text
+    interior = list(range(1, len(steps) - 1))
+    k = min(len(interior), max(1, int(len(interior) * severity)))
+    starts = interior[:len(interior) - k + 1] or [interior[0]]
+    start = rng.choice(starts)
+    kept = [s for j, s in enumerate(steps) if not (start <= j < start + k)]
+    return _reassemble(think, "\n".join(kept))
+
+
+def step_delete_dose(full_text: str, rng: random.Random, severity: float = 0.3) -> str:
+    """Diffuse step deletion: drop a fraction `severity` of interior steps at random."""
+    think, response = split_think_response(full_text)
+    steps = segment_steps(response)
+    if len(steps) < 3:
+        return full_text
+    interior = list(range(1, len(steps) - 1))
+    k = min(len(interior), max(1, int(len(interior) * severity)))
+    drop = set(rng.sample(interior, k))
+    return _reassemble(think, "\n".join(s for j, s in enumerate(steps) if j not in drop))
+
+
+def connective_strip(full_text: str, rng: random.Random, severity: float = 1.0) -> str:
+    """Demyelination analog: strip logical connectives (steps intact, scaffold degraded).
+    `severity` = probability each connective is removed."""
+    think, response = split_think_response(full_text)
+    stripped = _CONNECTIVES.sub(lambda m: "" if rng.random() < severity else m.group(0), response)
+    return _reassemble(think, stripped)
+
+
+def result_mask(full_text: str, rng: random.Random, severity: float = 0.5) -> str:
+    """Synaptic-block analog: mask numeric RESULTS in interior steps (the step fires but
+    its output is not released downstream). The final step / boxed answer is preserved."""
+    think, response = split_think_response(full_text)
+    steps = segment_steps(response)
+    if len(steps) < 3:
+        return full_text
+    for i in range(1, len(steps) - 1):
+        if rng.random() < severity:
+            steps[i] = _INTERIOR_NUM.sub("[NUM]", steps[i])
+    return _reassemble(think, "\n".join(steps))
+
+
+def excess_inject(full_text: str, rng: random.Random, severity: float = 0.3) -> str:
+    """Excitotoxicity analog: pathological EXCESS — inject distractor steps (over-signalling)."""
+    think, response = split_think_response(full_text)
+    steps = segment_steps(response)
+    if not steps:
+        return full_text
+    for _ in range(max(1, int(len(steps) * severity))):
+        steps.insert(rng.randint(0, len(steps)), rng.choice(_INSERT_STEPS))
+    return _reassemble(think, "\n".join(steps))
+
+
+# Registry consumed by dose_response.py. severity in [0,1]; the knee of each curve
+# is that damage type's reconstruction "breakdown point".
+DOSE_OPERATORS = {
+    "diffuse_mask": diffuse_mask,          # oxidative  — untargeted token noise
+    "step_delete": step_delete_dose,       # apoptosis  — scattered step loss
+    "region_excise": region_excise,        # necrosis   — contiguous lesion
+    "connective_strip": connective_strip,  # demyelination — conduction scaffold
+    "result_mask": result_mask,            # synaptic block — output not released
+    "excess_inject": excess_inject,        # excitotoxicity — pathological excess
+}
+
+
+# --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
 def corrupt_candidate(candidate: Candidate, seed: int) -> list[CorruptedSample]:

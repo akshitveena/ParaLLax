@@ -29,6 +29,12 @@ from approach_analysis import (classify_approach, detect_thinking_switch,
 
 _CONF_RANK = {"high": 3, "medium": 2, "low": 1}
 
+# VALIDITY axis (mechanism judge). sound_* = the reasoning is valid -> Type A;
+# the other three = right answer via UNSOUND reasoning -> Type B. "Wrong approach"
+# is a soundness failure, not difference or brittleness.
+_SOUND_MECH = {"sound_canonical", "sound_alternative"}
+_FLAWED_MECH = {"flawed_lucky", "unfaithful", "spurious"}
+
 
 # --------------------------------------------------------------------------- #
 # Per-candidate processing (Blocks 3-9)
@@ -93,6 +99,10 @@ def process_candidate(raw: dict, pf: dict) -> Candidate:
     c.stated_approach_sentence = stated_approach_sentence(c.response_text)
     gold_approach, _ = classify_approach(c.gold_solution) if c.gold_solution else ("unknown", [])
     c.approach_matches_gold = approaches_match(c.approach_in_response, gold_approach)
+    if raw.get("approach_matches_gold") is not None:     # similarity judge: canonicality signal (NOT A/B)
+        c.approach_matches_gold = bool(raw["approach_matches_gold"])
+    if raw.get("type_b_mechanism"):                       # mechanism judge: VALIDITY -> authoritative A/B
+        c.type_b_mechanism = str(raw["type_b_mechanism"])
     if c.thinking_text:
         # Use the SETTLED approach (after the last self-correction), not the first
         # attempt — a self-corrected-but-faithful chain must NOT count as a gap.
@@ -113,11 +123,18 @@ def process_candidate(raw: dict, pf: dict) -> Candidate:
 
     # ---- Block 5 error fields (Type B only) ----
     if c.candidate_type == "B":
-        c.error_location = "step_2_approach"
-        c.error_type = "wrong_framing" if c.thinking_response_gap else "wrong_concept"
-        c.error_description = c.gap_description or (
-            f"Response approach ({c.approach_in_response}) diverges from the "
-            f"gold approach ({gold_approach}).")
+        if c.type_b_mechanism in _FLAWED_MECH:        # mechanism judge: the validity failure
+            c.error_type = c.type_b_mechanism
+            c.error_location = "reasoning_validity"
+            c.error_description = (
+                f"Mechanism judge: {c.type_b_mechanism} — the reasoning is unsound yet "
+                f"the answer is correct.")
+        else:                                          # legacy proxy path (no mechanism verdict)
+            c.error_location = "step_2_approach"
+            c.error_type = "wrong_framing" if c.thinking_response_gap else "wrong_concept"
+            c.error_description = c.gap_description or (
+                f"Response approach ({c.approach_in_response}) diverges from the "
+                f"gold approach ({gold_approach}).")
 
     # ---- Block 7 (corruption readiness) ----
     c.can_approach_corrupt = (c.approach_in_response != "unknown"
@@ -165,7 +182,14 @@ def _classify(c: Candidate) -> tuple[str, str, str]:
         if c.approach_matches_gold is True:           # wrong answer, sound path (rare)
             return "C", "low", "answer+approach"
         return "D", "high", "answer_only"
-    # answer is correct
+    # answer is correct.
+    # VALIDITY (mechanism judge) is authoritative: it judges whether the reasoning is
+    # actually sound, which is what A vs B means. It overrides the similarity/gap
+    # proxies, which only see canonicality (different != wrong).
+    if c.type_b_mechanism in _SOUND_MECH:
+        return "A", "high", "answer+mechanism"
+    if c.type_b_mechanism in _FLAWED_MECH:
+        return "B", "high", "answer+mechanism"
     if c.thinking_response_gap:
         conf = "high" if c.thinking_source == "claude_api_block" else "medium"
         return "B", conf, "answer+thinking_gap"

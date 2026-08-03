@@ -1,0 +1,7 @@
+kind,a,b,value,ci_lo,ci_hi,significant
+marginal,pooled raw-SBERT,,0.2915,0.1888,0.3896,
+marginal,frozen step-SDAE (F),,0.4969,0.4017,0.5826,
+marginal,recon-only latent (R),,0.4164,0.3167,0.5076,
+paired_diff,pooled raw-SBERT,frozen step-SDAE (F),-0.2056,-0.302,-0.113,1
+paired_diff,pooled raw-SBERT,recon-only latent (R),-0.1249,-0.2139,-0.0403,1
+paired_diff,frozen step-SDAE (F),recon-only latent (R),0.0808,0.0069,0.1572,1

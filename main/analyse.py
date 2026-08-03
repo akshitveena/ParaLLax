@@ -118,6 +118,107 @@ def plot_dimension_probe(accs, output_path):
 
 
 # --------------------------------------------------------------------------- #
+# Confound controls + generic-SBERT baseline (makes the A/B probe interpretable)
+# --------------------------------------------------------------------------- #
+_SUBJECT_KEYS = [
+    ("number_theory", ("prime", "divisor", "modulo", "integer", "gcd", "divisible",
+                       "remainder", "digit", "repunit", "factorial")),
+    ("geometry", ("triangle", "circle", "angle", "polygon", "area", "perimeter",
+                  "vertex", "rhombus", "parallel", "radius", "coordinate")),
+    ("combinatorics", ("how many ways", "number of ways", "permutation", "combination",
+                       "choose", "arrangement", "subset", "count the")),
+    ("probability", ("probability", "random", "expected value", "dice", "coin", "chance")),
+    ("calculus", ("derivative", "integral", "limit ", "asymptote", "continuous")),
+    ("algebra", ("equation", "polynomial", "solve for", "inequality", "root of",
+                 "factor", "sequence", "series")),
+]
+
+
+def infer_subject(problem: str) -> str:
+    """ProcessBench has no domain tags; infer one from the problem text so the Fig-4
+    domain-transfer probe isn't dead (all 'other')."""
+    p = (problem or "").lower()
+    best, score = "other", 0
+    for subj, keys in _SUBJECT_KEYS:
+        s = sum(k in p for k in keys)
+        if s > score:
+            best, score = subj, s
+    return best
+
+
+def _confound_features(candidates):
+    txt = [(c.response_text or c.full_text or "") for c in candidates]
+    length = np.array([len(t.split()) for t in txt], dtype=float)
+    latex = np.array([(t.count("\\") + t.count("$")) / max(len(t.split()), 1) for t in txt], dtype=float)
+    nsteps = np.array([float(c.num_steps) for c in candidates], dtype=float)
+    datasets = np.array([c.dataset for c in candidates])
+    return length, latex, nsteps, datasets, txt
+
+
+def confound_report(model, candidates, emb, labels, device=None):
+    """Is z's A/B signal REAL, or a proxy for length / LaTeX / dataset / a generic encoder?
+    Probes A/B from: z (RiDAE), surface confounds only, a fresh pretrained SBERT, and each
+    single confound. z is meaningful only if it beats BOTH confounds-only AND raw SBERT."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler, OneHotEncoder
+    from sklearn.metrics import accuracy_score
+    from sklearn.model_selection import train_test_split
+
+    m = _ab_mask(labels)
+    y = labels[m]
+    if len(set(y)) < 2 or len(y) < 20:
+        return {"error": "not enough A/B for confound report", "n": int(len(y))}
+
+    length, latex, nsteps, datasets, txt = _confound_features(candidates)
+    length, latex, nsteps, datasets = length[m], latex[m], nsteps[m], datasets[m]
+    surf = StandardScaler().fit_transform(np.vstack([length, latex, nsteps]).T)
+    oh = OneHotEncoder(sparse_output=False, handle_unknown="ignore").fit_transform(datasets.reshape(-1, 1))
+    Xconf = np.hstack([surf, oh])
+
+    # generic pretrained encoder (the "did RiDAE add anything over baseline" control)
+    from sentence_transformers import SentenceTransformer
+    base = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2",
+                               device=str(device) if device else "cpu")
+    base_emb = np.asarray(base.encode([txt[i] for i in range(len(candidates))],
+                                      batch_size=64, show_progress_bar=False))[m]
+
+    def probe(X):
+        Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        clf = LogisticRegression(max_iter=2000).fit(Xtr, ytr)
+        return float(accuracy_score(yte, clf.predict(Xte)))
+
+    r = {
+        "majority_baseline": float(max(np.mean(y == "A"), np.mean(y == "B"))),
+        "length_only": probe(length[:, None]),
+        "latex_only": probe(latex[:, None]),
+        "numsteps_only": probe(nsteps[:, None]),
+        "confounds_only": probe(Xconf),
+        "raw_sbert_baseline": probe(base_emb),
+        "z_probe": probe(emb[m]),
+    }
+    r["z_beats_confounds_by"] = round(r["z_probe"] - r["confounds_only"], 3)
+    r["z_beats_sbert_by"] = round(r["z_probe"] - r["raw_sbert_baseline"], 3)
+    r["verdict"] = ("z carries real A/B signal beyond surface confounds and the generic encoder"
+                    if r["z_beats_confounds_by"] > 0.02 and r["z_beats_sbert_by"] > 0.0
+                    else "CAUTION: z's A/B signal is largely explained by confounds or the base encoder")
+    return r
+
+
+def print_confound_report(r):
+    print("\n[analyse] CONFOUND-CONTROLLED A/B PROBE")
+    print("-" * 60)
+    if "error" in r:
+        print(f"  {r['error']}"); return
+    for k in ("majority_baseline", "length_only", "latex_only", "numsteps_only",
+              "confounds_only", "raw_sbert_baseline", "z_probe"):
+        print(f"    {k:20} {r[k]:.3f}")
+    print(f"  z beats confounds by {r['z_beats_confounds_by']:+.3f} | "
+          f"z beats raw SBERT by {r['z_beats_sbert_by']:+.3f}")
+    print(f"  VERDICT: {r['verdict']}")
+    print("-" * 60)
+
+
+# --------------------------------------------------------------------------- #
 # Figure 1 — Type-B rate vs dataset difficulty
 # --------------------------------------------------------------------------- #
 def plot_type_b_by_dataset(candidates, output_path):
@@ -323,7 +424,9 @@ def main() -> None:
     # Fig 3 / 4 (UMAP)
     emb2d = run_umap(emb)
     plot_umap(emb2d, labels, "Fig 3 — RiDAE z-space by type", out_dir / "ridae_umap_by_type.png")
-    subjects = np.array([c.subject or "unknown" for c in candidates])
+    # ProcessBench has no domain tags -> infer subject from the problem so Fig 4 isn't dead.
+    subjects = np.array([c.subject if (c.subject and c.subject != "other")
+                         else infer_subject(c.problem) for c in candidates])
     if len(set(subjects)) > 1:
         plot_umap(emb2d, subjects, "Fig 4 — RiDAE z-space by subject",
                   out_dir / "ridae_umap_by_subject.png", color_map={})
@@ -331,6 +434,9 @@ def main() -> None:
     # Fig 5 + linear probe
     lp = linear_probe(emb, labels)
     print(f"[analyse] linear probe: {lp}")
+    # Confound-controlled probe: is the A/B signal real, or length/LaTeX/dataset/base-encoder?
+    conf = confound_report(model, candidates, emb, labels, device=args.device)
+    print_confound_report(conf)
     dp = dimension_probe(emb, labels)
     if dp:
         plot_dimension_probe(dp, out_dir / "ridae_dimension_probe.png")
@@ -356,8 +462,8 @@ def main() -> None:
         plot_ablation(out_dir)
 
     with (out_dir / "analysis_results.json").open("w") as fh:
-        json.dump({"linear_probe": lp, "dimension_probe": dp, "fig1_typeb": fig1,
-                   "fig7_gap": fig7, "interpolation": interp_all}, fh, indent=2)
+        json.dump({"linear_probe": lp, "confound_report": conf, "dimension_probe": dp,
+                   "fig1_typeb": fig1, "fig7_gap": fig7, "interpolation": interp_all}, fh, indent=2)
     print(f"[analyse] wrote {out_dir/'analysis_results.json'}")
 
 

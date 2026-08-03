@@ -40,24 +40,30 @@ PRICE_IN, PRICE_OUT = 1.50, 7.50                    # USD / 1M tokens (schema co
 
 
 # --------------------------------------------------------------------------- #
-def load_problems(dataset: str, limit: int, hardest: bool = False) -> list[dict]:
+def load_problems(dataset: str, limit: int, hardest: bool = False,
+                  min_difficulty: float | None = None,
+                  max_difficulty: float | None = None) -> list[dict]:
     """Return problem dicts with the schema's problem-level fields.
 
-    hardest=True (OmniMath only) selects the highest-difficulty problems, matching
-    the schema's "OmniMath (hardest 100)" Claude-ET batch.
+    hardest=True (OmniMath only) selects the highest-difficulty problems (Claude-ET).
+    min_difficulty / max_difficulty (OmniMath only) select a difficulty BAND — use a
+    moderate band (e.g. <=6) for weaker local models so they actually solve enough
+    problems to yield Type B (correct-via-wrong-approach), instead of all Type D.
     """
     from datasets import load_dataset
     out: list[dict] = []
     if dataset == "math":
-        ds = load_dataset("lighteval/MATH", split="test")
-        ds = ds.filter(lambda r: r.get("level") in ("Level 4", "Level 5"))
+        # lighteval/MATH was removed from the Hub; MATH-500 is the live, clean replacement
+        # (direct `answer` field + integer `level`).
+        ds = load_dataset("HuggingFaceH4/MATH-500", split="test")
+        ds = ds.filter(lambda r: int(r.get("level", 0) or 0) >= 4)   # hard subset (L4-5)
         ds = ds.select(range(min(limit, len(ds))))
         for i, r in enumerate(ds):
             out.append(dict(record_id=f"math_test_{i:04d}", problem=r["problem"],
-                            gold_answer=T.extract_answer(r["solution"])[0] or "",
-                            gold_solution=r["solution"], dataset="MATH",
-                            dataset_split="test", difficulty=r.get("level", ""),
-                            subject=_norm_subject(r.get("type")), source_idx=i))
+                            gold_answer=str(r.get("answer", "")),
+                            gold_solution=str(r.get("solution", "")), dataset="MATH",
+                            dataset_split="test", difficulty=str(r.get("level", "")),
+                            subject=_norm_subject(r.get("subject")), source_idx=i))
     elif dataset == "olympiadbench":
         ds = load_dataset("Hothan/OlympiadBench", "OE_TO_maths_en_COMP", split="train")
         ds = ds.select(range(min(limit, len(ds))))
@@ -72,14 +78,22 @@ def load_problems(dataset: str, limit: int, hardest: bool = False) -> list[dict]
     elif dataset == "omnimath":
         ds = load_dataset("KbsdJames/Omni-MATH", split="test")
         rows = list(enumerate(ds))                       # keep original source_idx
+
+        def _diff(item):
+            try:
+                return float(item[1].get("difficulty"))
+            except (TypeError, ValueError):
+                return -1.0
+
+        # Difficulty-band filter: keep only problems in [min, max]. Use a MODERATE band
+        # for weaker local models (e.g. --max_difficulty 6) so they solve enough to
+        # produce Type B; leave unset (or --hardest) for Claude on the hardest tier.
+        if min_difficulty is not None:
+            rows = [it for it in rows if _diff(it) >= min_difficulty]
+        if max_difficulty is not None:
+            rows = [it for it in rows if 0 <= _diff(it) <= max_difficulty]
         if hardest:
-            # "OmniMath (hardest N)" — sort by the dataset's difficulty score desc.
-            def _diff(item):
-                try:
-                    return float(item[1].get("difficulty"))
-                except (TypeError, ValueError):
-                    return -1.0
-            rows.sort(key=_diff, reverse=True)
+            rows.sort(key=_diff, reverse=True)           # "hardest N"
         rows = rows[:limit]
         for i, r in rows:
             out.append(dict(record_id=f"omnimath_test_{i:04d}", problem=r["problem"],

@@ -77,7 +77,18 @@ class Candidate:
     # ---- Block 5: approach analysis ----
     approach_in_thinking: Optional[str] = None
     approach_in_response: str = "unknown"
+    # CANONICALITY signal: did the approach match the reference (same/different)?
+    # Kept as a descriptor; it does NOT decide A/B once a mechanism verdict exists,
+    # because "different from reference" != "wrong" (a sound_alternative is Type A).
     approach_matches_gold: Optional[bool] = None
+    # VALIDITY axis (Block 5): the 5-way how-did-it-reach-the-correct-answer label
+    # from the Claude mechanism judge. This is authoritative for A/B among CORRECT
+    # candidates — "wrong approach" means UNSOUND reasoning, not merely different or
+    # brittle. Values:
+    #   sound_canonical / sound_alternative -> Type A (reasoning is valid)
+    #   flawed_lucky / unfaithful / spurious -> Type B (right answer, unsound reasoning)
+    # None when unjudged. Distinct from approach_matches_gold (canonicality) above.
+    type_b_mechanism: Optional[str] = None
     thinking_response_gap: Optional[bool] = None
     gap_description: Optional[str] = None
     stated_approach_sentence: str = ""
