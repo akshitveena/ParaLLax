@@ -5,6 +5,17 @@
 set -euo pipefail
 RIDAE_ROOT="${RIDAE_ROOT:-$PWD}"; cd "$RIDAE_ROOT"
 export HF_HOME="${HF_HOME:-$RIDAE_ROOT/.hf}"
+
+# Auto-activate the venv if it exists and isn't active. Running these experiments under the
+# system python is a silent failure mode: it may lack sentence-transformers, or worse, import
+# a different torch than the one setup_venv.sh verified against the GPU.
+if [ -z "${VIRTUAL_ENV:-}" ] && [ -f "$RIDAE_ROOT/.venv/bin/activate" ]; then
+  # shellcheck disable=SC1091
+  source "$RIDAE_ROOT/.venv/bin/activate"
+  echo "[env] activated $RIDAE_ROOT/.venv"
+fi
+python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)" \
+  || { echo "!! torch cannot see the GPU — run cluster/setup_venv.sh first"; exit 1; }
 export HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0} TOKENIZERS_PARALLELISM=false
 SEEDS="${SEEDS:-0 1 2 3 4}"
 mkdir -p logs experiments/results_e2e
