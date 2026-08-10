@@ -246,9 +246,14 @@ def cmd_panel(args):
     print("  " + "-" * 92)
     for f in files:
         blob = json.loads(f.read_text())
-        r = analyze_one(blob, args.cache, args.data_dir)
         key = blob.get("key") or ("shepherd" if f.name == "scores.json"
                                    else f.stem.replace("scores_", ""))
+        n = len(blob.get("rows", []))
+        if n < 20:                                    # adapter produced (almost) nothing
+            print(f"  {key:<34}{'—':>6}{'—':>9}{'—':>9}{'—':>8}{'—':>9}{'—':>9}  "
+                  f"ADAPTER FAILED — {n}/{blob.get('n',0)+blob.get('skipped',0)} scored, format wrong")
+            continue
+        r = analyze_one(blob, args.cache, args.data_dir)
         gate_ok = r["gate"] > 0.55
         note = ("GATE FAIL — format unvalidated, DO NOT REPORT" if not gate_ok
                 else ("Qwen-family: ProcessBench contamination possible" if r["qwen_caveat"] else ""))
