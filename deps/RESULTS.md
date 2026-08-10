@@ -135,28 +135,132 @@ small, threshold-level classification gain (f1 0.416→0.497) and **essentially 
 *readout* on top of a content-preserving encoder (PRM as input feature, not a competing loss
 head) — rather than baking A/B into the bottleneck by gradient pressure.
 
-## Phase 2a / 2b — e2e multi-seed + content/validity under the unfrozen encoder (QUEUED)
+## Phase W1 — Difficulty-only null model + stratified control (audit W1/W2/W12/W13)
 
-Code complete and validated; awaiting the cluster run (`cluster/`, SLURM array jobs, 5 seeds each).
+The null model the paper was missing. `experiments/difficulty_baseline.py`, 5 seeds, CPU.
+Base rate = **0.306** Type-B (n=1,700); AUPRC chance = 0.306.
 
-**Harness validation.** `experiments/eval_e2e.py` run on the existing e2e checkpoint (seed 42)
-returns **f1_B = 0.5761**, reproducing the published single-run 0.576 exactly — confirming the new
-harness's probe protocol is identical to `diagnose_sdae_e2e.py`'s. It additionally produces AUC
-(0.706) and accuracy (0.771), which the original single run never reported.
+| representation | f1_B | AUC | AUPRC |
+|---|---|---|---|
+| **difficulty-only (4 confounds, no text)** | **0.515 ± 0.008** | 0.791 ± 0.024 | 0.610 ± 0.034 |
+| raw-SBERT pooled (uncontrolled) | 0.580 ± 0.032 | 0.830 ± 0.027 | 0.740 ± 0.039 |
+| frozen step-SDAE (uncontrolled)  | 0.624 ± 0.042 | 0.816 ± 0.032 | 0.708 ± 0.047 |
 
-**Preliminary, n=1 — to be superseded by 2b's 5 seeds.** Same checkpoint, retrieval on the
-held-out split (N=340, matching Phase 1c):
+**W1 — the critique's missing number, and it lands.** Difficulty alone (length/latex/#steps/
+dataset, no text at all) reaches f1_B **0.515** — most of the way to what *uncontrolled* detectors
+score (0.58–0.62). So the bulk of a naive detector's apparent Type-B skill is difficulty. Every
+uncontrolled number must be read against 0.515, not raw-SBERT's 0.291. (This is why the
+confound-*controlled* numbers — frozen 0.497, e2e 0.591 — are the honest headline: they are what
+survives *after* removing this.)
 
-| | validity f1_B | R@1 | median rank | decode spec |
+**W2 — stratified within-dataset, the model-free control (no residualization assumption):**
+
+| dataset | n | %B | difficulty-only f1_B | step-SDAE f1_B |
 |---|---|---|---|---|
-| frozen F (Phase 1c/1a, n=5) | 0.497 | 0.068 | 45.6 | 0.697 |
-| e2e F (n=1, seed 42)        | 0.576 | 0.012 | 63.5 | 0.764 |
+| gsm8k        | 200 | 3.5% | 0.000 | 0.000 (only ~7 pos — uninformative) |
+| math         | 500 | 18.8% | 0.087 | **0.448** |
+| olympiadbench| 500 | 32.2% | 0.331 | **0.662** |
+| omnimath     | 500 | 51.8% | 0.717 | **0.802** |
 
-The e2e model is *better* at validity and *worse* at content on every retrieval measure, with a
-more collapsed decoder — i.e. a **dose-response between validity specialisation and content
-eviction**: the freer the encoder is to specialise, the more content it discards. If 2b's 5 seeds
-hold this, the Phase-1c tension result strengthens under e2e rather than merely surviving it.
-Treat as a preview only (n=1 vs n=5).
+**This is the result that rescues the representation.** *Within* a single dataset — where the
+dataset difficulty-proxy is constant — difficulty-only largely collapses (math 0.087, olympiad
+0.331) while the step-SDAE retains large signal (0.448, 0.662, 0.802). So the step-structured
+representation is **not** merely reading difficulty: its signal survives where difficulty range is
+narrow. Crucially this is a *model-free* confirmation of the linear residualization (audit W2's
+concern that linear control misses nonlinear difficulty dependence) — two independent methods,
+same conclusion. Note most of difficulty-only's aggregate 0.515 comes from the *dataset* variable
+(the coarse 4→52% base-rate proxy); strip it and difficulty-within-dataset is weak.
+
+**W13 — confound justification (point-biserial r with the Type-B label):** length **+0.415**
+(dominant), n_steps +0.115 (weak), latex_density −0.010 (inert). Length is the real confound;
+latex is kept for completeness but carries ~no marginal signal — state this rather than asserting
+all four matter equally.
+
+## Phase 2a / 2b — e2e multi-seed + content/validity under the unfrozen encoder (DONE)
+
+A100, 5 seeds each, fully unfrozen encoder + heads. `cluster/run_phase2.sh` →
+`experiments/eval_e2e.py`. Harness first validated by reproducing the published single-run
+**f1_B = 0.5761** on the old checkpoint (probe protocol identical to `diagnose_sdae_e2e.py`).
+
+### 2a — e2e headline, now with error bars
+
+| | validity f1_B | AUC | accuracy |
+|---|---|---|---|
+| e2e F, single run (old Table 1) | 0.576 | — | — |
+| **e2e F, 5 seeds**              | **0.591 ± 0.050** | 0.741 ± 0.019 | 0.781 ± 0.025 |
+
+**The headline holds.** The single-run 0.576 sits inside the 5-seed band; the mean is if anything
+slightly higher (0.591). No 0.436→0.497-style correction needed this time. Table 1's e2e row can
+now carry ±0.050.
+
+### 2b — content/validity under the unfrozen encoder (removes the frozen-only caveat)
+
+Retrieval on the held-out split (N=340), R-e2e vs F-e2e, 5 seeds each:
+
+| metric | R-e2e (recon-only) | F-e2e (full) | frozen R / F (Phase 1c/1d) |
+|---|---|---|---|
+| Recall@1     | **0.981 ± 0.006** | 0.007 ± 0.005 | 0.996 / 0.068 |
+| median rank  | **1.0 ± 0.0**     | 110.5 ± 19.0  | 1.0 / 45.6 |
+| decode spec ↓| 0.370 ± 0.005     | 0.882 ± 0.057 | 0.299 / 0.697 |
+| val L_denoise↓| 0.247 ± 0.003    | 0.588 ± 0.014 | 0.194 / 0.529 |
+| validity f1_B | 0.432 ± 0.025    | 0.591 ± 0.050 | 0.416 / 0.497 |
+| validity AUC  | 0.692 ± 0.023    | 0.741 ± 0.019 | 0.693 / 0.673 |
+
+**The content result replicates and strengthens.** Recon-only preserves content almost perfectly
+(R@1 0.981, median rank 1); the full model evicts it *harder* than in the frozen regime (R@1
+0.007 vs frozen 0.068; median rank 110 vs 46; decode spec 0.882 = near-total collapse). Giving the
+encoder freedom to specialise makes the eviction worse, not better. The frozen-encoder caveat on
+Phase 1c is removed — the tension is not a frozen-features artifact.
+
+**The validity result CHANGES under e2e — reported, not suppressed (spec §2b).** In the frozen
+regime, recon-only z had AUC (0.693) *equal to or above* the supervised F (0.673): supervision
+added no separability, only a threshold. **Under the unfrozen encoder that flips: F-e2e AUC (0.741)
+now clearly exceeds R-e2e (0.692), and F's f1 lead over R widens to 0.16 (vs 0.08 frozen).**
+Interpretation: a frozen MiniLM cannot reshape its features toward validity, so supervision can
+only re-weight what is already there (no AUC gain); once the encoder is trainable, supervision
+genuinely *reshapes* features to create validity structure — separability the recon-only objective
+does not produce on its own. So the honest, sharpened claim across both regimes:
+
+> Content and validity compete for one bottleneck. Recon-only always keeps content (R@1 ≥ 0.98).
+> Supervision always evicts it, and the more plastic the encoder, the harder it evicts. What the
+> encoder's plasticity *buys* for that cost is regime-dependent: nothing separability-wise when
+> frozen (only a threshold), but real, measurable validity structure (AUC +0.05) when unfrozen.
+
+This is a *stronger* two-regime result than "the pattern survives" — it quantifies what unfreezing
+trades content away *for*.
+
+## Phase 2c — External PRM under our confound protocol (highest-impact result)
+
+An established open PRM — `peiyi9979/math-shepherd-mistral-7b-prm`, full precision (bf16, no
+quantization), a different lab than ProcessBench's — scored through our *exact* confound protocol.
+`experiments/prm_external.py`, 1,688/1,700 solutions (12 dropped to truncation, recorded not
+padded), 2.1 min on an A100. **Sanity gate passed:** the PRM's per-step scores predict
+ProcessBench *human* step labels at AUC 0.735 — the scoring format is correct, so the numbers below
+are trustworthy.
+
+| aggregation | raw f1_B | ctrl f1_B | raw AUC | ctrl AUC |
+|---|---|---|---|---|
+| min (weakest-step, primary) | 0.429 | **0.075** | 0.761 | 0.666 |
+| mean (secondary)            | 0.494 | **0.131** | 0.794 | 0.688 |
+
+**The difficulty-artifact critique generalises to a strong, widely-used 7B PRM — outcome 1, the
+strongest possible upgrade to the paper's impact.** Residualising length / LaTeX-density / #steps /
+dataset collapses Math-Shepherd's Type-B f1_B from ~0.43–0.49 to **0.075–0.131** (Δ ≈ −0.35). So a
+SOTA process reward model's apparent ability to flag wrong-approach-right-answer is *almost entirely
+a confound artifact*: control for difficulty and it is near-useless at the operating point.
+
+Two honest nuances:
+- **AUC deflates less than f1** (0.76→0.67, Δ−0.10). The PRM keeps a *weak* confound-independent
+  ranking signal (ctrl AUC 0.666 > 0.5), but its thresholded discrimination is destroyed. Correct
+  claim: strong PRMs retain faint rank signal after control; their headline f1-style numbers do not
+  survive it.
+- **The min-vs-mean robustness check clears cleanly** — both aggregations deflate almost identically
+  (Δf1 −0.353 vs −0.363), so the effect is not an artifact of the weakest-step `min` aggregator (and
+  there is no quantization here to blame either). Full-precision, both aggregators, same story.
+
+This reframes the paper's contribution from "our small model inflates under naive evaluation" to
+"**difficulty confounds inflate PRM Type-B evaluation across the board, including SOTA verifiers**" —
+a claim about how the field measures verifiers, not just about our model.
 
 ## Phase 2e — Bootstrap confidence intervals
 

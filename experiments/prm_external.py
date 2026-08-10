@@ -54,7 +54,14 @@ def cmd_score(args):
     probs = {json.loads(l)["record_id"]: json.loads(l)["problem"]
              for l in Path(args.data_dir, "candidates.jsonl").read_text().splitlines() if l.strip()}
 
-    tok = AutoTokenizer.from_pretrained(args.model)
+    # Math-Shepherd ships a LLaMA/Mistral SentencePiece tokenizer. transformers>=5 tries to
+    # convert it to a fast tokenizer and (even with sentencepiece+protobuf present) can trip on
+    # a TikToken fallback for this checkpoint. use_fast=False loads the SentencePiece tokenizer
+    # directly and sidesteps the whole conversion path.
+    try:
+        tok = AutoTokenizer.from_pretrained(args.model)
+    except Exception:
+        tok = AutoTokenizer.from_pretrained(args.model, use_fast=False)
     cand_ids = tok.encode(f"{GOOD} {BAD}")[1:]              # [good_id, bad_id]
     tag_id = tok.encode(f"{STEP_TAG}")[-1]
     print(f"[2c] candidate token ids={cand_ids}  step_tag id={tag_id}", flush=True)
