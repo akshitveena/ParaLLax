@@ -176,6 +176,65 @@ same conclusion. Note most of difficulty-only's aggregate 0.515 comes from the *
 latex is kept for completeness but carries ~no marginal signal — state this rather than asserting
 all four matter equally.
 
+## Phase W3 — Does the judge read difficulty? (the sharpest attack)
+
+If the LLM judge (κ=0.60) calls solutions flawed *more when the problem is hard*, the judge-labelled
+splits are difficulty-confounded and a detector recovering them is partly recovering difficulty —
+circular. Tested directly on the 99 problems with BOTH human and judge labels
+(`data/processbench_calib.jsonl`). `experiments/judge_confound_check.py`.
+
+| labeller | confound→B AUC | std length coef |
+|---|---|---|
+| human | 0.665 | 0.691 |
+| judge | 0.700 | 0.672 |
+
+judge − human confound→AUC gap = **+0.034, 95% CI [−0.090, +0.129]** (bootstrap, spans 0);
+labeller agreement 0.80.
+
+**The attack is answered: the judge is NOT more difficulty-driven than humans.** Both labellers show
+the *same* moderate difficulty-dependence (AUC ~0.67–0.70, near-identical length coefficients) —
+which is expected and correct, because Type-B genuinely rises with difficulty (4%→52% across
+splits). The point is that the judge adds **no extra** difficulty bias beyond what human labels
+already carry; the CI on the gap spans zero. So judge labels are clean *on the difficulty axis* and
+a detector recovering them is not circularly recovering judge-injected difficulty. Caveat: n=99,
+wide CI (±0.11) — reported as "no detectable contamination," not "provably none."
+
+## Phase E2 — Encoder scale ladder (audit E2/W7): does it survive at scale?
+
+Core ablation (pooled vs step-structured, confound-controlled f1_B, 5 seeds) at three encoder
+sizes. `experiments/encoder_ladder.py`. Kills "22M-on-a-laptop".
+
+| encoder | dim | pooled (controlled) | step-SDAE (controlled) | lift |
+|---|---|---|---|---|
+| all-MiniLM-L6-v2 (22M)  | 384  | 0.291 ± 0.045¹ | 0.497 ± 0.047¹ | +0.206 |
+| all-mpnet-base-v2 (110M)| 768  | 0.270 ± 0.037 | 0.523 ± 0.043 | +0.253 |
+| gte-large (335M)        | 1024 | **0.011 ± 0.009** | 0.511 ± 0.049 | +0.500 |
+
+¹MiniLM row = the Phase-1a 5-seed numbers (the ladder's 1-seed MiniLM check reproduced them:
+pooled 0.288, step 0.486).
+
+**The clean-win outcome: the lift is not a small-encoder artifact.** The step-structured controlled
+f1_B is flat and healthy (0.497 → 0.523 → 0.511) from 22M to 335M, and pooled-controlled never
+clears the difficulty floor at any scale (0.291, 0.270, 0.011). Scaling the encoder 15× does not let
+pooling recover the validity axis. "22M-on-a-laptop" is answered: the step-structure > pooling result
+holds across encoder sizes, and the lift *grows* (+0.21 → +0.25 → +0.50).
+
+**Honest correction (a predicted number that the data refuted).** An earlier draft of this row
+claimed the gte-large pooled collapse to 0.011 showed "stronger encoders are *more* confounded — the
+control erases a strong signal." A direct check refuted that: gte-large pooled is a **weak Type-B
+detector even UNCONTROLLED** (f1_B = 0.305, barely above the 0.306 base rate) — lower, not higher,
+than MiniLM pooled uncontrolled (0.580). So the 0.011 is not "control erasing strong signal"; gte's
+mean-pooled vector barely carries Type-B signal in the first place, and what little it has is
+confound. The defensible cross-scale claims are therefore: (a) pooled-controlled ≤ floor at every
+scale, (b) step-structured ≈ 0.50 at every scale, (c) the gap survives scaling. Do **not** claim
+"more confounded with scale."
+
+**Not a broken embedding (the gap is real):** on the *same* gte-large embeddings the step-SDAE
+reaches 0.511, so the embeddings do carry Type-B signal — it is specifically *mean-pooling* gte that
+fails to expose it (gte is a retrieval encoder; its mean-pool may simply be ill-suited to this
+classification, which itself is a fair point about pooled baselines). The method's scale-robustness
+(0.50 at every size) is the load-bearing E2 result; the pooled magnitudes are the foil.
+
 ## Phase 2a / 2b — e2e multi-seed + content/validity under the unfrozen encoder (DONE)
 
 A100, 5 seeds each, fully unfrozen encoder + heads. `cluster/run_phase2.sh` →
