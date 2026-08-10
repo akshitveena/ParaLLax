@@ -176,6 +176,35 @@ same conclusion. Note most of difficulty-only's aggregate 0.515 comes from the *
 latex is kept for completeness but carries ~no marginal signal — state this rather than asserting
 all four matter equally.
 
+## Phase E1 — PRM panel (audit E1/W5): confound inflation across the field
+
+2c generalised: score multiple open PRMs (different labs, different base models) through the
+IDENTICAL confound protocol + sanity gate. `experiments/prm_panel.py`. Pre-committed to reporting
+every model run, deflating or not.
+
+| PRM | lab / base | gate | raw f1_B | ctl f1_B | Δf1 | raw AUC | ctl AUC |
+|---|---|---|---|---|---|---|---|
+| Math-Shepherd-7B | DeepSeek / Mistral | 0.735 | 0.429 | **0.075** | **−0.353** | 0.761 | 0.666 |
+| RLHFlow-8B-PRM | RLHFlow / Llama-3.1 | 0.802 | 0.508 | **0.125** | **−0.383** | 0.804 | 0.683 |
+| Qwen2.5-Math-PRM-7B | Qwen / Qwen-2.5 | 0.559† | — | — | — | — | — |
+| Skywork-o1-PRM-7B | Skywork / Qwen-2.5 | — | — | — | — | — | — |
+
+gate = step-score AUC vs ProcessBench HUMAN labels (must clear 0.55 to trust the row).
+
+**Two independent PRMs, two labs, two base families — both collapse under confound control**
+(Δf1 −0.35 / −0.38; ctl f1_B 0.075 / 0.125). Confound inflation of PRM Type-B evaluation is **not
+a single-model quirk** — it reproduces across established verifiers. This is the "claim about the
+field, not the model" upgrade.
+
+†**Qwen — reported, inconclusive (pre-commitment).** Adapter format verified correct by
+`qwen_diag.py` (out is (B,L,2) `TokenClassifierOutput`, `<extra_0>` aligned, official class index),
+but its reward head scores OUR step segmentation weakly and near-monotonically (gate 0.559,
+barely over threshold; ctl f1_B degenerates to 0.000, ctl AUC 0.488 ≈ chance). This is a
+train/eval step-format distribution mismatch (Qwen PRM trained on its own segmentation), not a bug.
+Excluded from the headline claim; reported honestly rather than dropped.
+**Skywork** uses bespoke repo inference incompatible with the shared `<extra_0>` scheme on
+transformers 5.x — 0/1700 scored, adapter unvalidated, reported as such.
+
 ## Phase W3 — Does the judge read difficulty? (the sharpest attack)
 
 If the LLM judge (κ=0.60) calls solutions flawed *more when the problem is hard*, the judge-labelled
