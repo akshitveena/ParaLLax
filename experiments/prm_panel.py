@@ -102,7 +102,9 @@ class QwenAdapter:
         text = self.tok.apply_chat_template(msgs, tokenize=False)
         ids = self.tok.encode(text, return_tensors="pt", truncation=True,
                               max_length=self.max_len).to(self.model.device)
-        out = self.model(input_ids=ids)
+        # use_cache=False avoids the KV-cache path, whose DynamicCache.from_legacy_cache call
+        # was removed in transformers 5.x (this is a scoring forward pass — no cache needed).
+        out = self.model(input_ids=ids, use_cache=False)
         logits = out[0] if isinstance(out, (tuple, list)) else out.logits  # (B, L, 2)
         mask = (ids == self.sep)
         probs = F.softmax(logits, dim=-1)[..., 1]                   # P(correct)
