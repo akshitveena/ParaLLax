@@ -121,21 +121,22 @@ class RLHFlowAdapter:
 
     @torch.no_grad()
     def score(self, problem, steps):
-        # Build the conversation incrementally with '+' after each step, then read, in ONE forward,
-        # the '+/-' logits at each assistant-answer position (the token right after each turn open).
+        # One forward PER step, reading P('+') at the generation position. Unambiguous: always
+        # returns exactly len(steps) scores, so nothing is skipped. The earlier single-forward
+        # "count '+' tokens" version mis-counted whenever '+' appeared in the math itself, which
+        # dropped ~27% of solutions NON-randomly (arithmetic-heavy -> longer -> our top confound).
         out = []
-        msgs = []
-        for i, s in enumerate(steps):
-            msgs.append({"role": "user", "content": (problem + " " + s) if i == 0 else s})
-            msgs.append({"role": "assistant", "content": "+"})
-        text = self.tok.apply_chat_template(msgs, tokenize=False)
-        ids = self.tok(text, return_tensors="pt", truncation=True,
-                       max_length=self.max_len).input_ids.to(self.model.device)
-        logits = self.model(ids).logits[0]                          # (L, V)
-        # positions where the assistant token '+' sits are our read points
-        pos = (ids[0] == self.plus).nonzero(as_tuple=True)[0]
-        for p in pos.tolist():
-            two = logits[p - 1, [self.plus, self.minus]].softmax(-1)  # predict-token-at-p
+        for i in range(len(steps)):
+            msgs = []
+            for j in range(i + 1):
+                msgs.append({"role": "user",
+                             "content": (problem + " " + steps[j]) if j == 0 else steps[j]})
+                if j < i:
+                    msgs.append({"role": "assistant", "content": "+"})
+            text = self.tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            ids = self.tok(text, return_tensors="pt", truncation=True,
+                           max_length=self.max_len).input_ids.to(self.model.device)
+            two = self.model(ids).logits[0, -1, [self.plus, self.minus]].softmax(-1)
             out.append(float(two[0]))
         return out
 
