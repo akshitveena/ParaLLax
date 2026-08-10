@@ -176,6 +176,26 @@ same conclusion. Note most of difficulty-only's aggregate 0.515 comes from the *
 latex is kept for completeness but carries ~no marginal signal — state this rather than asserting
 all four matter equally.
 
+## Phase E3 — Second corpus (PRM800K): NEGATIVE, and informative
+
+Attempted the answer-correct-with-error slice from PRM800K (Birchlabs flattened stepwise-critic).
+`experiments/prm800k_build.py`. Reconstructed the followed (preferred-response) solution per
+problem; Type B = followed path reaches a solution AND contains a human-labelled error (rating −1).
+
+Result: **7,841 solution-reaching chains but only 23 Type-B (0.3%)** — vs ProcessBench's 30.6%.
+Unusable for the core ablation (a held-out split would have ~4 positives).
+
+**This is structural, not a bug.** PRM800K's preferred path is the human-*curated correct*
+trajectory: labelers select good continuations, so errors almost never lie on the followed path.
+The wrong-approach-right-answer phenomenon requires *model-generated* solutions that err yet still
+reach the right answer — precisely ProcessBench's construction, and precisely what a curated
+stepwise-critique tree lacks. Worth one sentence in the paper: the phenomenon is a property of
+sampled model reasoning, not of human-curated solution trees, so PRM800K cannot serve as its
+second corpus. "One benchmark" is instead addressed by breadth on the ProcessBench axis (E1 PRM
+panel across labs, E2 encoder ladder across scales); a matched second corpus would require
+*generating* one (sample solutions → verify answers → judge Type-B; W3 shows the judge is not
+difficulty-biased, so this is defensible) — deferred.
+
 ## Phase E1 — PRM panel (audit E1/W5): confound inflation across the field
 
 2c generalised: score multiple open PRMs (different labs, different base models) through the
