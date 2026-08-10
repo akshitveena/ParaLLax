@@ -1,135 +1,109 @@
 """
-prm800k_build.py — E3: build the answer-correct-with-error slice from PRM800K, as a second corpus.
+prm800k_build.py — E3: build the answer-correct-with-error slice from PRM800K (Birchlabs flattened
+stepwise-critic mirror), as a second corpus. Output matches step_cache.pt exactly, so
+difficulty_baseline.py / train_sdae.py / prm_external.py all run on it unchanged.
 
-Kills "one benchmark" and partially kills the judge objection (PRM800K phase-2 has HUMAN step
-labels). Output matches step_cache.pt's schema exactly, so difficulty_baseline.py, train_sdae.py
-and prm_external.py all run on it unchanged.
+SCHEMA (Birchlabs/openai-prm800k-stepwise-critic): one row per candidate next-step —
+  instruction, responses(prior steps taken), next_response(this candidate step),
+  rating ∈ {-1,0,1}, is_preferred_response, is_solution, is_human_response, answer.
 
-PRM800K is stepwise-critique data, NOT linear solutions — a reviewer who knows it will check the
-mapping, so it is made explicit here and must be validated against the real data before trusting:
+EXPLICIT LABEL MAPPING (a reviewer who knows PRM800K will check this):
+  * Reconstruct the FOLLOWED solution per problem = the preferred-response chain
+    (is_preferred_response==True), ordered by len(responses); next_response is the step taken.
+  * steps_text  = [next_response along the preferred chain]
+  * step_labels = [1 if rating == -1 (human-labelled ERROR) else 0]   (1=error, matches ProcessBench)
+  * Include only chains that REACH a solution (is_solution==True on the terminal step) and have
+    >=2 steps. Type B = chain reaches a solution AND contains a labelled error; Type A = no error.
+  * CAVEAT (documented, not hidden): PRM800K does not expose a clean final-answer-correctness flag
+    here (answer is usually None), so "reached is_solution on the human-preferred path" is our
+    answer-correct proxy — the labeler was building a correct solution. This is the one mapping
+    assumption; stated in the appendix.
 
-  A "solution" = the path the labeler actually followed = the chosen_completion at each step
-                 (human_completion when chosen_completion is null).
-  steps_text   = [text of the followed completion at each step]
-  step_labels  = [1 if that completion's rating == -1 (human-labelled ERROR) else 0]
-                 (1=error matches ProcessBench's convention used throughout this project)
-  Type B (chain='B') = final answer correct AND >=1 step labelled error (rating -1)
-  Type A (chain='A') = final answer correct AND no error
-  Solutions that never reach a correct final answer are EXCLUDED (we study wrong-approach-
-  RIGHT-answer, same inclusion rule as the ProcessBench slice).
-
-Because the exact HF id / field names drift, run --inspect FIRST and confirm the structure, then
---build. --inspect makes no assumptions; --build asserts them and fails loudly on mismatch.
-
-    # on the box (has internet):
-    python experiments/prm800k_build.py --inspect --source <hf_id_or_local.jsonl>
-    python experiments/prm800k_build.py --build   --source <hf_id_or_local.jsonl> \
-        --out data/step_cache_prm800k.pt
+    python experiments/prm800k_build.py --inspect --source Birchlabs/openai-prm800k-stepwise-critic
+    python experiments/prm800k_build.py --build   --source Birchlabs/openai-prm800k-stepwise-critic
 """
 from __future__ import annotations
 
 import argparse
 import json
-import sys
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
+ROOT = Path(__file__).resolve().parent.parent
 
 
-def load_rows(source, limit=0):
-    """Accept a local .jsonl path OR an HF dataset id. Yields raw dict rows."""
+def load_dataset_rows(source, split="train"):
     p = Path(source)
     if p.exists() and p.suffix in (".jsonl", ".json"):
-        for i, line in enumerate(p.read_text().splitlines()):
-            if line.strip():
-                yield json.loads(line)
-            if limit and i + 1 >= limit:
-                return
-    else:
-        from datasets import load_dataset
-        ds = load_dataset(source, split="train")
-        for i, r in enumerate(ds):
-            yield r
-            if limit and i + 1 >= limit:
-                return
+        return [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+    from datasets import load_dataset
+    return list(load_dataset(source, split=split))
+
+
+def reconstruct(rows):
+    """Group flattened rows by problem, rebuild each preferred solution chain.
+
+    Returns list of (problem, steps_text, step_labels, reached_solution)."""
+    groups = defaultdict(list)
+    for r in rows:
+        groups[r["instruction"]].append(r)
+    out = []
+    for problem, rs in groups.items():
+        pref = [r for r in rs if r.get("is_preferred_response")]
+        if not pref:
+            continue
+        pref.sort(key=lambda r: len(r.get("responses") or []))
+        seen_depth, chain = set(), []
+        for r in pref:                                   # one step per depth, in order
+            d = len(r.get("responses") or [])
+            if d in seen_depth:
+                continue
+            seen_depth.add(d); chain.append(r)
+        steps_text = [r["next_response"] for r in chain]
+        step_labels = [1 if r.get("rating") == -1 else 0 for r in chain]
+        reached = any(r.get("is_solution") for r in chain)
+        out.append((problem, steps_text, step_labels, reached))
+    return out
 
 
 def inspect(source):
-    rows = list(load_rows(source, limit=3))
-    print(f"[E3] loaded {len(rows)} sample rows from {source}\n")
-    for i, r in enumerate(rows):
-        print(f"--- row {i} top-level keys: {list(r.keys())}")
-        q = r.get("question", r)
-        if isinstance(q, dict):
-            print(f"    question keys: {list(q.keys())}")
-        lab = r.get("label", {})
-        if isinstance(lab, dict):
-            print(f"    label keys: {list(lab.keys())}  finish_reason={lab.get('finish_reason')}")
-            steps = lab.get("steps", [])
-            print(f"    n steps: {len(steps)}")
-            if steps:
-                s0 = steps[0]
-                print(f"    step[0] keys: {list(s0.keys())}")
-                comps = s0.get("completions") or []
-                if comps:
-                    print(f"    step[0].completions[0] keys: {list(comps[0].keys())}")
-                    print(f"    step[0].completions[0] rating: {comps[0].get('rating')}")
-                print(f"    step[0].chosen_completion: {s0.get('chosen_completion')}")
-        print()
-    print("Confirm: chosen_completion index selects the followed step; rating -1 = error;")
-    print("finish_reason=='solution' means a final answer was reached. If any differ, tell me.")
-
-
-def followed_step(step):
-    """Return (text, rating) for the completion actually followed at this step, or None."""
-    ci = step.get("chosen_completion")
-    comps = step.get("completions") or []
-    if ci is not None and 0 <= ci < len(comps):
-        c = comps[ci]; return c.get("text", ""), c.get("rating")
-    hc = step.get("human_completion")
-    if hc:                                      # human-written continuation = correct by construction
-        txt = hc.get("text", "") if isinstance(hc, dict) else str(hc)
-        return txt, 1
-    return None
+    rows = load_dataset_rows(source)
+    print(f"[E3] {len(rows)} flattened rows")
+    chains = reconstruct(rows)
+    reached = [c for c in chains if c[3] and len(c[1]) >= 2]
+    A = sum(1 for c in reached if not any(c[2]))
+    B = sum(1 for c in reached if any(c[2]))
+    print(f"[E3] {len(chains)} problems | {len(reached)} solution-reaching chains (>=2 steps)")
+    print(f"[E3] Type A (no error) = {A}   Type B (has error) = {B}   "
+          f"(B rate {B/max(A+B,1):.3f})")
+    steplens = [len(c[1]) for c in reached]
+    print(f"[E3] steps/chain: min {min(steplens)} med {int(np.median(steplens))} max {max(steplens)}")
+    ex = next((c for c in reached if any(c[2])), None)
+    if ex:
+        print("\n[E3] example Type-B chain (error steps marked *):")
+        for t, l in zip(ex[1], ex[2]):
+            print(f"   {'*' if l else ' '} {t[:90]}")
+    print("\nIf Type-B count is usable (>~150), run --build. If tiny, tell me and we adjust the")
+    print("inclusion rule (e.g. include self-corrected non-preferred error steps).")
 
 
 def build(source, out, data_dir):
-    rows = list(load_rows(source))
-    print(f"[E3] {len(rows)} raw rows", flush=True)
-    recs, n_excl_noanswer, n_excl_short = [], 0, 0
-    ca = cb = 0
-    for idx, r in enumerate(rows):
-        q = r.get("question", {})
-        gold = str(q.get("ground_truth_answer", "")).strip()
-        lab = r.get("label", {}) or {}
-        if lab.get("finish_reason") != "solution":     # must reach a final answer
-            n_excl_noanswer += 1; continue
-        steps_text, step_labels = [], []
-        for st in lab.get("steps", []):
-            fs = followed_step(st)
-            if fs is None:
-                continue
-            txt, rating = fs
-            steps_text.append(txt)
-            step_labels.append(1 if rating == -1 else 0)   # 1 = human-labelled error
-        if len(steps_text) < 2:
-            n_excl_short += 1; continue
-        chain = "B" if any(step_labels) else "A"
-        ca += chain == "A"; cb += chain == "B"
-        recs.append({"id": f"prm800k-{idx}", "split": "prm800k", "chain": chain,
+    rows = load_dataset_rows(source)
+    chains = [c for c in reconstruct(rows) if c[3] and len(c[1]) >= 2]
+    recs = []
+    for i, (problem, steps_text, step_labels, _) in enumerate(chains):
+        recs.append({"id": f"prm800k-{i}", "split": "prm800k",
+                     "chain": "B" if any(step_labels) else "A",
                      "steps_text": steps_text,
                      "step_labels": np.array(step_labels, dtype=np.int64)})
+    A = sum(r["chain"] == "A" for r in recs); B = sum(r["chain"] == "B" for r in recs)
+    print(f"[E3] built {len(recs)} chains  (A={A} B={B}, B rate {B/max(len(recs),1):.3f})")
+    if B < 50:
+        print(f"[E3] WARNING: only {B} Type-B — too few for a stable ablation. Consider adjusting "
+              f"the inclusion rule before trusting downstream numbers.")
 
-    print(f"[E3] built {len(recs)}  (A={ca} B={cb})  "
-          f"excluded: no-final-answer={n_excl_noanswer}, <2 steps={n_excl_short}")
-    if not recs:
-        print("[E3] ZERO records — the schema assumptions are wrong. Run --inspect and send output.")
-        sys.exit(1)
-
-    # embed step text with the SAME encoder as ProcessBench (MiniLM) for a like-for-like corpus
     from sentence_transformers import SentenceTransformer
     st = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     flat, offs = [], []
@@ -142,21 +116,20 @@ def build(source, out, data_dir):
     import torch
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     torch.save(recs, out)
-    # also emit a candidates.jsonl-shaped file so build_confounds works (needs response text)
-    cand_dir = Path(data_dir); cand_dir.mkdir(parents=True, exist_ok=True)
-    with (cand_dir / "candidates.jsonl").open("w") as fh:
+    cand = Path(data_dir); cand.mkdir(parents=True, exist_ok=True)
+    with (cand / "candidates.jsonl").open("w") as fh:
         for r in recs:
             fh.write(json.dumps({"record_id": r["id"],
                                  "response_text": "\n".join(r["steps_text"]),
                                  "num_steps": len(r["steps_text"])}) + "\n")
-    print(f"[E3] wrote {out} and {cand_dir/'candidates.jsonl'} ({len(recs)} records)")
-    print(f"[E3] NEXT: difficulty_baseline.py --cache {out} --data_dir {cand_dir}  (does pooled->floor")
-    print(f"          collapse REPLICATE on PRM800K?); then train_sdae.py / prm_external.py on it.")
+    print(f"[E3] wrote {out} and {cand/'candidates.jsonl'}")
+    print(f"[E3] NEXT: python experiments/difficulty_baseline.py --cache {out} "
+          f"--data_dir {cand}  (does pooled->floor collapse REPLICATE on PRM800K?)")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", required=True, help="HF dataset id OR local phase2 .jsonl path")
+    ap.add_argument("--source", default="Birchlabs/openai-prm800k-stepwise-critic")
     ap.add_argument("--inspect", action="store_true")
     ap.add_argument("--build", action="store_true")
     ap.add_argument("--out", default=str(ROOT / "data/step_cache_prm800k.pt"))
@@ -167,7 +140,7 @@ def main():
     elif args.build:
         build(args.source, args.out, args.data_dir)
     else:
-        print("pass --inspect (do this first) or --build")
+        print("pass --inspect (first) or --build")
 
 
 if __name__ == "__main__":
