@@ -80,9 +80,15 @@ class ShepherdAdapter:
 class QwenAdapter:
     """Qwen2.5-Math-PRM: '<extra_0>' after each step; 2-class reward head, P(correct)=class-1."""
     def __init__(self, hf, dtype, device):
-        from transformers import AutoTokenizer, AutoModel
+        from transformers import AutoTokenizer, AutoModel, AutoConfig
         self.tok = AutoTokenizer.from_pretrained(hf, trust_remote_code=True)
-        self.model = AutoModel.from_pretrained(hf, dtype=dtype, device_map=device,
+        # Qwen's released modeling_qwen2_rm.py predates transformers 5.x and reads
+        # config.pad_token_id, which the new config no longer auto-exposes. Inject it.
+        cfg = AutoConfig.from_pretrained(hf, trust_remote_code=True)
+        if getattr(cfg, "pad_token_id", None) is None:
+            cfg.pad_token_id = (self.tok.pad_token_id if self.tok.pad_token_id is not None
+                                else self.tok.eos_token_id)
+        self.model = AutoModel.from_pretrained(hf, config=cfg, dtype=dtype, device_map=device,
                                                trust_remote_code=True).eval()
         self.sep = self.tok.encode("<extra_0>")[0]
         self.sys = "Please reason step by step, and put your final answer within \\boxed{}."
