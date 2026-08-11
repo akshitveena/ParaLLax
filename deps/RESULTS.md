@@ -196,6 +196,37 @@ panel across labs, E2 encoder ladder across scales); a matched second corpus wou
 *generating* one (sample solutions → verify answers → judge Type-B; W3 shows the judge is not
 difficulty-biased, so this is defensible) — deferred.
 
+## Phase M1 — Where the confound enters OUR model (mech-interp, CPU)
+
+`experiments/mechinterp_m1.py` (Mac/CPU, ~1 min, frozen Phase-1a checkpoint). Stages:
+per-step MiniLM **H** → bottleneck step-codes **Z** → attention-pooled chain **c**.
+
+**M1b — aggregation manufactures the confound (probe R²/acc, 5-fold):**
+
+| stage | log_length | n_steps | latex_density | dataset acc |
+|---|---|---|---|---|
+| H (per-step MiniLM, pooled) | 0.239 | **0.072** | 0.612 | 0.628 |
+| Z (bottleneck, pooled)      | 0.642 | **0.986** | 0.520 | 0.622 |
+| c (attention-pooled chain)  | 0.640 | 0.982 | 0.530 | 0.620 |
+
+n_steps and length are near-invisible in H and **explode at Z**. MiniLM encodes steps
+independently so it *cannot* see total length / step-count — the **aggregation creates the two
+confounds that matter** (length is the dominant one, W13 r=0.415). This is the mechanistic version
+of the pooling critique: the confound is not in the features, it is in the pooling. (Latex density
+is already high at H — a genuinely per-step surface feature.)
+
+**M1c — causal single-direction ablation is INSUFFICIENT (honest negative):** A/B f1_B on c —
+raw 0.638, 4-confound residualized 0.523, **length-direction-ablated 0.638** (unchanged).
+Projecting out the single length direction does not reproduce residualization → the confound is
+**distributed across a multi-variable subspace**, not one linear direction. This *justifies*
+residualizing (a subspace projection) rather than a targeted edit — and it means the length
+direction in c is ~orthogonal to the A/B axis (removing it doesn't touch the signal).
+
+**Attention analysis — the chain head reads signal, not surface:** attention weight vs step-length
+r = +0.138 (mild), but mean attention on **error steps 0.168 > non-error 0.142**. The learned
+attention-pooling up-weights error-containing steps — it attends to the validity signal, with only
+a weak surface-length bias. Figure: `experiments/results_mechinterp/m1_where_confound.png`.
+
 ## Phase E1 — PRM panel (audit E1/W5): confound inflation across the field
 
 2c generalised: score multiple open PRMs (different labs, different base models) through the
