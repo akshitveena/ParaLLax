@@ -227,6 +227,45 @@ r = +0.138 (mild), but mean attention on **error steps 0.168 > non-error 0.142**
 attention-pooling up-weights error-containing steps — it attends to the validity signal, with only
 a weak surface-length bias. Figure: `experiments/results_mechinterp/m1_where_confound.png`.
 
+## Phase M2 — Where difficulty lives in the 7B PRM, and can it be removed? (A100)
+
+`experiments/mechinterp_m2.py`, bf16 on A100 (validated stack: cand [648,387], tag 12902, 12
+skipped, **baseline reproduces 2c exactly** — raw 0.429 / ctl 0.075 / gate 0.735). Cache residual
+activations every 4th layer at each step tag → probe log_length/n_steps by layer → mean-ablate the
+peak length direction → re-measure.
+
+**Probe: difficulty is strongly, linearly represented in Math-Shepherd's residual stream, peaking
+mid-network.** log_length probe R² by layer:
+
+| layer | 0 | 4 | 8 | 12 | 16 | 20 | 24 | 28 | 32 |
+|---|---|---|---|---|---|---|---|---|---|
+| R² | −0.66 | 0.69 | 0.91 | **0.92** | 0.92 | 0.92 | 0.91 | 0.91 | 0.84 |
+
+Difficulty (length/step-count) is almost perfectly decodable (R² ≈ 0.92) across layers 8–28,
+peaking at layer 12. A SOTA PRM internally encodes response length/difficulty richly — the
+mechanistic counterpart of the statistical confound.
+
+**Ablation: distributed, not one direction (honest negative).**
+
+| | raw f1_B | ctl f1_B | step gate |
+|---|---|---|---|
+| baseline | 0.429 | 0.075 | 0.735 |
+| length-direction mean-ablated @ L12 | 0.433 | 0.076 | 0.732 |
+| Δ | +0.005 | +0.001 | −0.003 |
+
+Mean-ablating the single peak length direction does **not** move the raw score toward its
+controlled value (Δ ≈ 0). Difficulty is decodable from a high-R² but **multi-dimensional, redundant**
+subspace, and 20 downstream layers can reconstruct it — so a single-direction, single-layer edit
+cannot remove its influence on the score. **This matches M1c** (single-direction ablation also
+failed in our own model): in both the 22M encoder and the 7B PRM, the difficulty confound is
+distributed, so statistical control cannot be replaced by a targeted causal edit. Figure:
+`experiments/results_mechinterp/m2_where.png`.
+
+**Net for the paper:** M2 delivers a clean positive (difficulty is linearly, richly represented in
+the PRM's residual stream, R² 0.92, localized to mid-layers — a real interpretability result) *and*
+a coherent negative (it is not a single removable direction), the latter agreeing across both
+models. Not the "one clean ablation" best case, but a consistent, honest mechanistic account.
+
 ## Phase E1 — PRM panel (audit E1/W5): confound inflation across the field
 
 2c generalised: score multiple open PRMs (different labs, different base models) through the

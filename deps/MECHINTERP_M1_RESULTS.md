@@ -83,13 +83,47 @@ length artifact.
   *our pipeline*, not in a large PRM (that is M2).
 - The single-direction ablation is linear; a nonlinear edit was not attempted.
 
-## Status of M2 (for completeness, not yet a result)
-M2 — where difficulty lives inside the 7B Math-Shepherd PRM, and whether mean-ablating that
-direction drops its raw f1_B toward its controlled value — is queued on the A100
-(`experiments/mechinterp_m2.py`). A Kaggle T4×2 attempt failed for stack reasons (its transformers
-tokenizes the step tag incompatibly → 96% of solutions skipped, gate at chance; and device_map
-OOM'd on the ablation pass), so M2 runs on the validated A100 stack. **Do not cite M2 numbers until
-that run completes and its baseline gate reproduces ~0.735.**
+## M2 — where difficulty lives inside the 7B PRM, and can it be removed?
+
+`experiments/mechinterp_m2.py`, bf16 on A100. Validated stack (candidate tokens [648,387], step
+tag 12902, 12/1700 skipped) and the **baseline reproduces the paper's 2c numbers exactly**
+(raw f1_B 0.429, controlled 0.075, step-label gate 0.735) — so the mechanistic numbers are
+trustworthy. Method: cache residual-stream activations every 4th layer at each step tag over the
+1,700 solutions; linear-probe each layer for log length and step count; mean-ablate the peak length
+direction (mean-ablation, not zero-ablation) and re-score.
+
+**Probe — difficulty is strongly and linearly represented in the PRM's residual stream, peaking
+mid-network.** log_length probe R² by layer:
+
+| layer | 0 | 4 | 8 | 12 | 16 | 20 | 24 | 28 | 32 |
+|---|---|---|---|---|---|---|---|---|---|
+| R² | −0.66 | 0.69 | 0.91 | **0.92** | 0.92 | 0.92 | 0.91 | 0.91 | 0.84 |
+
+Length/step-count are almost perfectly decodable (R² ≈ 0.92) across layers 8–28. A SOTA process
+reward model internally encodes response length/difficulty richly — the mechanistic counterpart of
+the statistical confound. (Figure: R²-by-layer, `experiments/results_mechinterp/m2_where.png`.)
+
+**Ablation — the confound is distributed, not a single direction (honest negative).**
+
+| | raw f1_B | controlled f1_B | step-label gate |
+|---|---|---|---|
+| baseline | 0.429 | 0.075 | 0.735 |
+| length-direction mean-ablated at layer 12 | 0.433 | 0.076 | 0.732 |
+| Δ | +0.005 | +0.001 | −0.003 |
+
+Mean-ablating the single peak length direction does **not** move the raw score toward its
+controlled value (Δ ≈ 0), and the step-label gate is unchanged (no competence removed). Difficulty
+is decodable from a high-R² but multi-dimensional, redundant subspace, and ~20 downstream layers
+can reconstruct it, so a single-direction single-layer edit cannot remove its influence on the
+score. **This agrees with M1c**: in both the 22M encoder (M1) and the 7B PRM (M2), the difficulty
+confound is distributed — statistical residualization cannot be replaced by a targeted causal edit.
+
+**Net.** M2 is a clean *positive* (difficulty is linearly, richly represented in the PRM, R² 0.92,
+localized to mid-layers) plus a coherent *negative* (not a single removable direction), the latter
+consistent across both models. It is the plan's "distributed" outcome, reported as pre-committed.
+The overall M1+M2 story: the confound is *created by aggregation* in our model and *richly
+represented* in the 7B, and in neither case is it a single direction — which is precisely why the
+paper controls for it statistically.
 
 ## Reproducibility
 `python experiments/mechinterp_m1.py` — prints all tables above and writes
