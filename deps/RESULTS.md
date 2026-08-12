@@ -253,6 +253,14 @@ mechanistic counterpart of the statistical confound.
 | length-direction mean-ablated @ L12 | 0.433 | 0.076 | 0.732 |
 | Δ | +0.005 | +0.001 | −0.003 |
 
+**M3 subspace sweep (update): difficulty is a ~16-dim subspace ENTANGLED with competence.**
+Ablating k PLS difficulty directions — raw f1_B reaches the controlled floor by k=16 (0.127), but
+the step-gate falls with it (0.735→0.637 at k=16, →0.48 at k=64). You cannot remove the difficulty
+subspace without degrading step-error competence — the confound is distributed, self-repairing
+(downstream R² recovers ~0.90 under a k=64 ablation — Hydra effect), and inseparable from
+capability. => statistical control is a mechanistic necessity, not just convenience. See
+`deps/MECHINTERP_M1_RESULTS.md`.
+
 Mean-ablating the single peak length direction does **not** move the raw score toward its
 controlled value (Δ ≈ 0). Difficulty is decodable from a high-R² but **multi-dimensional, redundant**
 subspace, and 20 downstream layers can reconstruct it — so a single-direction, single-layer edit

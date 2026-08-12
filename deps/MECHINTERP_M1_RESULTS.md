@@ -130,19 +130,23 @@ paper controls for it statistically.
 `experiments/mechinterp_m3.py` (A100, bf16, validated stack; baseline reproduces raw 0.429 / ctl
 0.075 / gate 0.735). Motivated by M2's single-direction null.
 
-**M3a — difficulty is a ~16-dimensional subspace; ablating it reproduces statistical control.**
-Mean-ablating the top-k PLS difficulty directions at the peak layer (12), raw f1_B vs k:
+**M3a — difficulty is a ~16-dim subspace, but it is ENTANGLED with the PRM's competence.**
+Mean-ablating the top-k PLS difficulty directions at the peak layer (12); raw f1_B *and the
+step-error gate* vs k:
 
 | k | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
 |---|---|---|---|---|---|---|---|
 | raw f1_B | 0.417 | 0.462 | 0.447 | 0.365 | **0.127** | 0.000 | 0.000 |
+| step gate | 0.713 | 0.703 | 0.704 | 0.661 | **0.637** | 0.566 | 0.484 |
 
-One direction (k=1) barely moves the score, but ~16 directions collapse it toward the controlled
-floor (0.127 vs 0.075). The confound is neither a single direction (M2) nor irreducible — it is a
-**~16-dimensional subspace**, and causal subspace ablation reproduces the statistical control.
-(Caveat: at k≥32 raw falls to 0.000, *below* the controlled floor — over-ablation, not clean
-confound removal; the confound-specific regime is k≈8–16. A per-k step-label gate confirms
-competence is preserved there.)
+(baseline: raw 0.429, controlled 0.075, gate 0.735.) One direction barely moves the score;
+~16 directions drive raw f1_B down to the controlled floor (0.127 ≈ 0.075) — so difficulty is a
+**~16-dimensional subspace**, not one direction (M2). **But the step-error gate falls in tandem**
+(0.735 → 0.637 at k=16, → 0.48 at k=64): you cannot remove the difficulty subspace without
+degrading the PRM's genuine step-scoring competence. This is the plan's "entangled with capability"
+outcome — difficulty and competence share representational structure in Math-Shepherd; the confound
+is **not a cleanly separable direction**. (This is the *opposite* of the small model, where the
+length direction in c was ~orthogonal to the A/B axis — an interesting model-scale contrast.)
 
 **M3b — self-repair (Hydra effect): the network reconstructs difficulty downstream.** With a 64-dim
 ablation live at layer 12, downstream length-probe R² barely drops (0.917→0.889 at L16; 0.836→0.805
@@ -153,11 +157,15 @@ A mechanistic reason single-point ablation of the score's difficulty dependence 
 thin (top head 0.010, tailing off across heads 19, 17, 26, 21, 31, …). Difficulty is written by many
 heads, none dominant — consistent with the subspace and self-repair findings.
 
-**Combined M2+M3.** In the 7B PRM, difficulty is richly linearly represented (R² 0.92), occupies a
-~16-dim subspace (not one direction), is written by many heads with no single culprit, and is
-actively reconstructed downstream when removed (Hydra). Together these explain why a targeted
-single-direction/head edit cannot remove the confound, and why statistical residualization (which
-removes the whole subspace at once) is the right tool.
+**Combined M2+M3 — why statistical control is *necessary*, not just convenient.** In the 7B PRM,
+difficulty is (i) richly linearly represented (R² 0.92, M2), (ii) a ~16-dim subspace, not one
+direction (M3a), (iii) written by many heads with no single culprit (M3c), (iv) actively
+reconstructed downstream when removed — the Hydra effect (M3b), and (v) **entangled with the
+verifier's step-scoring competence** — removing it degrades the gate (M3a). These five together
+make the point sharper than a clean ablation would: the difficulty confound in a SOTA PRM is
+distributed, self-repairing, and inseparable from capability, so it **cannot be excised by a
+targeted internal edit**. Confound control therefore has to be done statistically at evaluation
+time — the paper's protocol is not merely a convenience but a mechanistic necessity.
 
 ## Reproducibility
 `python experiments/mechinterp_m1.py` (M1, CPU), `mechinterp_m2.py` and `mechinterp_m3.py` (M2/M3,
