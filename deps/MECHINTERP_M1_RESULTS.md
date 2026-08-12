@@ -125,6 +125,41 @@ The overall M1+M2 story: the confound is *created by aggregation* in our model a
 represented* in the 7B, and in neither case is it a single direction — which is precisely why the
 paper controls for it statistically.
 
+## M3 — resolving M2's null: subspace ablation, self-repair (Hydra), head attribution
+
+`experiments/mechinterp_m3.py` (A100, bf16, validated stack; baseline reproduces raw 0.429 / ctl
+0.075 / gate 0.735). Motivated by M2's single-direction null.
+
+**M3a — difficulty is a ~16-dimensional subspace; ablating it reproduces statistical control.**
+Mean-ablating the top-k PLS difficulty directions at the peak layer (12), raw f1_B vs k:
+
+| k | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| raw f1_B | 0.417 | 0.462 | 0.447 | 0.365 | **0.127** | 0.000 | 0.000 |
+
+One direction (k=1) barely moves the score, but ~16 directions collapse it toward the controlled
+floor (0.127 vs 0.075). The confound is neither a single direction (M2) nor irreducible — it is a
+**~16-dimensional subspace**, and causal subspace ablation reproduces the statistical control.
+(Caveat: at k≥32 raw falls to 0.000, *below* the controlled floor — over-ablation, not clean
+confound removal; the confound-specific regime is k≈8–16. A per-k step-label gate confirms
+competence is preserved there.)
+
+**M3b — self-repair (Hydra effect): the network reconstructs difficulty downstream.** With a 64-dim
+ablation live at layer 12, downstream length-probe R² barely drops (0.917→0.889 at L16; 0.836→0.805
+at L32). Difficulty is re-encoded downstream after removal — the Hydra effect (McGrath et al. 2023).
+A mechanistic reason single-point ablation of the score's difficulty dependence is hard.
+
+**M3c — no single culprit head.** Per-head write onto the length direction at layer 12 is spread
+thin (top head 0.010, tailing off across heads 19, 17, 26, 21, 31, …). Difficulty is written by many
+heads, none dominant — consistent with the subspace and self-repair findings.
+
+**Combined M2+M3.** In the 7B PRM, difficulty is richly linearly represented (R² 0.92), occupies a
+~16-dim subspace (not one direction), is written by many heads with no single culprit, and is
+actively reconstructed downstream when removed (Hydra). Together these explain why a targeted
+single-direction/head edit cannot remove the confound, and why statistical residualization (which
+removes the whole subspace at once) is the right tool.
+
 ## Reproducibility
-`python experiments/mechinterp_m1.py` — prints all tables above and writes
-`experiments/results_mechinterp/m1_where_confound.png` (R²-by-stage figure).
+`python experiments/mechinterp_m1.py` (M1, CPU), `mechinterp_m2.py` and `mechinterp_m3.py` (M2/M3,
+A100). Figures in `experiments/results_mechinterp/` (`m1_where_confound.png`, `m2_where.png`,
+`m3_analysis.png`).
