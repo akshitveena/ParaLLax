@@ -161,13 +161,17 @@ def main():
         return out_sc, {li: np.array(v) for li, v in dh.items()}
 
     # ---- M3a subspace ablation sweep ----
-    print("[M3a] subspace ablation sweep (raw f1_B vs k):")
+    print("[M3a] subspace ablation sweep (raw f1_B / ctl / gate vs k):")
     sweep = {}
     for k in KS:
         B = Wd[:, :k]; mu = (acts[peak] @ B).mean(0)
         asc, _ = rescore(subspace_hook(B, mu))
-        sweep[k] = f1v(cmin(asc))
-        print(f"   k={k:>3}: raw f1_B={sweep[k]:.3f}  (baseline {BASE['raw']:.3f}, controlled {BASE['ctl']:.3f})")
+        av = cmin(asc); tr, _ = sp(len(av)); bta = np.linalg.lstsq(CFk[tr], av[tr], rcond=None)[0]
+        sweep[k] = {"raw": f1v(av), "ctl": f1v(av - CFk @ bta), "gate": gate(asc)}
+        print(f"   k={k:>3}: raw={sweep[k]['raw']:.3f} ctl={sweep[k]['ctl']:.3f} "
+              f"gate={sweep[k]['gate']:.3f}   (base raw {BASE['raw']:.3f} / ctl {BASE['ctl']:.3f} / gate {BASE['gate']:.3f})")
+    print("   READING: the confound-clean regime is where raw->~ctl WHILE gate stays ~baseline")
+    print("   (gate collapsing => competence removed, not just confound = over-ablation).")
 
     # ---- M3b self-repair: with the largest-k ablation live, re-probe downstream R² ----
     kmax = max(KS); B = Wd[:, :kmax]; mu = (acts[peak] @ B).mean(0)
@@ -222,7 +226,8 @@ def main():
     try:
         import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
         fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-        ax[0].plot(list(sweep), list(sweep.values()), marker="o")
+        ax[0].plot(list(sweep), [v["raw"] for v in sweep.values()], marker="o", label="raw f1_B")
+        ax[0].plot(list(sweep), [v["gate"] for v in sweep.values()], marker="s", label="step gate")
         ax[0].axhline(BASE["raw"], ls="--", c="gray", label="baseline raw")
         ax[0].axhline(BASE["ctl"], ls=":", c="red", label="controlled")
         ax[0].set_xscale("log", base=2); ax[0].set_xlabel("k ablated directions"); ax[0].set_ylabel("raw f1_B")
