@@ -1,0 +1,11 @@
+encoder,dim,kind,seed,ctl_f1B
+gte-large,1024,pooled,0,0.0183
+gte-large,1024,pooled,1,0.0
+gte-large,1024,pooled,2,0.0
+gte-large,1024,pooled,3,0.0174
+gte-large,1024,pooled,4,0.0192
+gte-large,1024,step,0,0.5231
+gte-large,1024,step,1,0.5864
+gte-large,1024,step,2,0.5301
+gte-large,1024,step,3,0.4633
+gte-large,1024,step,4,0.4533

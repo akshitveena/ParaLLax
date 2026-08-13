@@ -1,0 +1,10 @@
+{
+  "model": "Skywork/Skywork-o1-Open-PRM-Qwen-2.5-7B",
+  "key": "skywork",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "qwen_caveat": true,
+  "minutes": 3.15,
+  "n": 0,
+  "skipped": 1700,
+  "rows": []
+}

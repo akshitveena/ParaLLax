@@ -1,0 +1,10 @@
+{
+  "model": "Qwen/Qwen2.5-Math-PRM-7B",
+  "key": "qwen",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "qwen_caveat": true,
+  "minutes": 0.54,
+  "n": 0,
+  "skipped": 1700,
+  "rows": []
+}

@@ -1,0 +1,11 @@
+encoder,dim,kind,seed,ctl_f1B
+all-mpnet-base-v2,768,pooled,0,0.2899
+all-mpnet-base-v2,768,pooled,1,0.2131
+all-mpnet-base-v2,768,pooled,2,0.3226
+all-mpnet-base-v2,768,pooled,3,0.2482
+all-mpnet-base-v2,768,pooled,4,0.2764
+all-mpnet-base-v2,768,step,0,0.5231
+all-mpnet-base-v2,768,step,1,0.5876
+all-mpnet-base-v2,768,step,2,0.5301
+all-mpnet-base-v2,768,step,3,0.5236
+all-mpnet-base-v2,768,step,4,0.4516
