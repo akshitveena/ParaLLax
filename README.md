@@ -1,4 +1,4 @@
-# PARALLAX — *Hard, Not Wrong*
+# ParaLLax — *Hard, Not Wrong*
 
 ### Reasoning verifiers don't judge correctness. They read difficulty.
 
@@ -22,7 +22,7 @@ The trouble: **a verifier that simply keys on difficulty will look like it detec
 reasoning**, because bad reasoning and hard problems co-occur. Nobody was controlling
 for that.
 
-PARALLAX is three things: a **detector** that isolates the validity signal, a
+ParaLLax is three things: a **detector** that isolates the validity signal, a
 **confound-controlled evaluation protocol** that shows most apparent verifier skill is
 difficulty, and a **mechanistic account** of *why* — where difficulty lives inside a
 verifier and why you can't remove it.
@@ -128,4 +128,4 @@ Core detector experiments run on CPU in minutes; the 7B PRM panel and mech-inter
 - Checkpoints are selected on the same held-out split the probe evaluates (uniform across
   phases; disclosed).
 
-*(Repository URL remains `github.com/akshitveena/ridae`; "PARALLAX" is the project/paper name.)*
+*(Repository URL remains `github.com/akshitveena/ridae`; "ParaLLax" is the project/paper name.)*
