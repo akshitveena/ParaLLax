@@ -1,110 +1,131 @@
-# RiDAE — Reasoning-inspired Denoising Autoencoder
+# PARALLAX — *Hard, Not Wrong*
 
-RiDAE learns a **geometric latent space of reasoning approach** by training an
-encoder to reconstruct reasoning chains after they have been deliberately damaged.
-The most valuable training signal is an empirically-verified phenomenon: **LLMs
-sometimes reach the correct answer via a conceptually wrong approach** (Type B,
-"wrong-approach-right-answer"), which becomes dominant on hard problems
-(4% on GSM8K → 52% on OmniMath).
+### Reasoning verifiers don't judge correctness. They read difficulty.
 
-After training, the 64-dim bottleneck code `z` encodes conceptual approach
-*independently of answer correctness*. We can then locate any LLM's reasoning in
-this space, separate brittle from robust approaches, and — the headline result —
-measure the geometric gap between what a model **thinks** and what it **says**
-(`‖z_thinking − z_response‖`), the first direct measure of reasoning unfaithfulness.
+We took a state-of-the-art 7B process reward model, found the direction in its
+residual stream that encodes problem *difficulty*, and tried to surgically remove it.
+**It grew back.** Downstream layers reconstructed it within four layers — a Hydra
+effect — and what little we could excise took the verifier's genuine error-detection
+ability down with it. Difficulty isn't a bug you can patch out of these models. It's
+load-bearing.
 
-## Architecture
+That is the punchline. Here is the arc that gets there.
+
+---
+
+## The problem: *hard* looks like *wrong*
+
+LLMs sometimes reach the **right answer through a conceptually wrong approach**
+("wrong-approach–right-answer," Type B) — and this gets more common the harder the
+problem is (4% on GSM8K → 52% on OmniMath). A good reasoning verifier should flag it.
+The trouble: **a verifier that simply keys on difficulty will look like it detects bad
+reasoning**, because bad reasoning and hard problems co-occur. Nobody was controlling
+for that.
+
+PARALLAX is three things: a **detector** that isolates the validity signal, a
+**confound-controlled evaluation protocol** that shows most apparent verifier skill is
+difficulty, and a **mechanistic account** of *why* — where difficulty lives inside a
+verifier and why you can't remove it.
+
+---
+
+## Headline results
+
+| result | number |
+|---|---|
+| **Difficulty-only null** (4 confounds, *no text*) reaches | **f1\_B 0.515** — near naive detectors |
+| Step-structured detector, confound-controlled (5-seed) | pooled **0.29** → frozen **0.50** → e2e **0.59** |
+| Open 7B PRMs under the *identical* protocol (Math-Shepherd, RLHFlow) | raw f1\_B **0.43–0.51 → 0.08–0.13** (Δ ≈ −0.35) |
+| Difficulty linearly decodable inside the 7B PRM | **R² = 0.92** (mid-network) |
+| Removing difficulty: a **~16-dim, self-repairing subspace** | entangled with the verifier's competence |
+
+Full ledger: [`deps/RESULTS.md`](deps/RESULTS.md). Mech-interp write-up:
+[`deps/MECHINTERP_M1_RESULTS.md`](deps/MECHINTERP_M1_RESULTS.md). Reviewer-audit status:
+[`deps/HARDENING_STATUS.md`](deps/HARDENING_STATUS.md).
+
+---
+
+## 1 — The detector
+
+A **step-structured denoising autoencoder** that keeps per-step structure instead of
+mean-pooling it away (pooling destroys the validity axis — it never clears the 0.29 floor).
 
 ```
-corrupted reasoning chain
-  → [ENCODER]    all-MiniLM-L6-v2 (fine-tuned, mean-pooled)   384-d
-  → [BOTTLENECK] 384 → 256 → 128 → 64   = z   (interpretable code)
-  → [DECODER]    64 → 128 → 256 → 384   = reconstructed embedding
-
-Losses (all train simultaneously):
-  L_reconstruct : 1 − cos(decoder(z_corrupted), encoder(original))   (TSDAE-style)
-  L_MNR         : in-batch multiple-negatives ranking on (z_corr, z_orig)
-  L_triplet     : push Type A and Type B apart in z-space (margin 0.5)
-  L_total = L_reconstruct + L_MNR + 0.3 · L_triplet
+reasoning chain, one embedding per step
+  → per-step MiniLM/SBERT embeddings              (384-d)
+  → 2-layer Transformer bottleneck                (256-d step-codes)   ← relational mixing
+  → decoder (denoising)  + PRM head (per-step error)  + attention-pooled chain head (A/B)
 ```
 
-Three corruptions force the learning: **approach** (replace stated framing),
-**step** (delete/shuffle an interior step), **conclusion** (perturb the `\boxed{}`).
+Trained on **ProcessBench** human per-step error labels (1.7K answer-correct solutions).
+Confound-controlled, leakage-free held-out **f1\_B rises 0.29 → 0.50 → 0.59** as the encoder
+unfreezes — a 2× gain over the pooled baseline. The same PRM head is a competent process
+verifier (step-error AUC 0.80) and a Type-B data miner (precision@10 = 1.0).
 
-## Build note — two corrections applied
+## 2 — The confound critique, generalized to the field
 
-This build follows the file/code spec in `RiDAE_ClaudeCode.docx`, **with the two
-corrections from the "Corrected Edition" `RiDAE_Roadmap.docx`**, which override it:
+- **The missing null model:** a logistic classifier on four confounds
+  (length / #steps / LaTeX-density / dataset) with **no text** reaches f1\_B **0.515** —
+  most of what naive detectors "know" is difficulty.
+- **A PRM panel:** score open 7B PRMs (Math-Shepherd, RLHFlow — different labs, different
+  base models) through the *same* residualized protocol. Headline f1\_B **collapses ~0.43–0.51
+  → 0.08–0.13** under control. The critique isn't about one model; it's about how the field
+  measures verifiers.
+- **Scale-invariant:** holds across a 22M → 335M encoder ladder.
+- **Not label circularity:** the κ = 0.60 LLM-judge's difficulty-slope matches humans'
+  (bootstrap gap CI spans 0).
 
-1. **No GSM8K in training.** Its Type B cases are arithmetic slips, not conceptual
-   divergences. Hard datasets only (OmniMath, OlympiadBench, MATH L4+L5).
-2. **MNR loss added** alongside reconstruction + triplet (batch size 64), to give
-   `z` real inter-candidate similarity geometry.
+## 3 — Where the confound lives (and why you can't cut it out)
+
+Inside Math-Shepherd-7B's residual stream:
+
+- **Probe:** difficulty is linearly decodable at **R² = 0.92**, peaking mid-network.
+- **Subspace ablation:** one direction does nothing; ~16 directions drop the score to the
+  controlled floor — but the step-error gate falls in lockstep. Difficulty is **entangled
+  with competence**.
+- **Self-repair (Hydra):** ablate it at the peak layer and downstream layers re-encode it
+  (R² recovers to ~0.90).
+- **Steering:** *adding* the direction monotonically inflates the Type-B score — the causal
+  bookend.
+
+**Conclusion:** confound control cannot be replaced by a targeted internal edit — it is a
+mechanistic necessity, not a statistical convenience.
+
+---
+
+## Repository
+
+```
+main/            core model (sdae_prm.py), training (frozen + e2e), data pipeline, judge
+experiments/     every experiment (each self-documenting):
+                   difficulty_baseline.py   confound null + stratified control (W1/W2)
+                   prm_panel.py             the 7B PRM panel (E1)
+                   encoder_ladder.py        22M→335M scale ladder (E2)
+                   judge_confound_check.py  judge-reads-difficulty test (W3)
+                   mechinterp_m1/m2/m3.py   mech-interp: probe / ablation / subspace+Hydra
+                   mechinterp_steer.py      activation steering
+                   bootstrap_ci.py          paired-difference CIs
+deps/            RESULTS.md · MECHINTERP_M1_RESULTS.md · HARDENING_STATUS.md
+```
 
 ## Setup
 
 ```bash
-conda create -n ridae python=3.11 -y
-conda activate ridae
+conda create -n ridae python=3.11 -y && conda activate ridae
 pip install -r requirements.txt
 ```
 
-## Quick start — verify the pipeline offline (no API key)
+Core detector experiments run on CPU in minutes; the 7B PRM panel and mech-interp
+(M2/M3/steer) need a single A100-40GB (bf16, no quantization).
 
-```bash
-python scripts/make_synthetic_corpus.py        # tiny FAKE corpus (plumbing only)
-python main/data_pipeline.py --raw data/raw/candidates_raw.jsonl --dataset synthetic
-python experiments/baseline_umap.py            # control: generic-encoder UMAP + probe
-python main/train.py --epochs 3 --batch_size 16 # trains on MPS/CPU in ~minutes
-python main/analyse.py                          # UMAP, probes, interpolation
-```
+## Honest limitations
 
-> The synthetic corpus is **not research data** — it exists only to exercise every
-> component end-to-end. Replace it with real Claude-generated candidates below.
+- The core representation result rests on one corpus (ProcessBench); PRM800K structurally
+  lacks the phenomenon (curated paths → only 23 Type-B), so a matched second corpus would have
+  to be *generated*.
+- The detector is a small head on a small encoder — the contribution is the **protocol and the
+  mechanistic account**, not a competitive verifier.
+- Checkpoints are selected on the same held-out split the probe evaluates (uniform across
+  phases; disclosed).
 
-## Real data — Claude extended-thinking generation
-
-Requires `export ANTHROPIC_API_KEY=...`. Generation uses the Batch API (~50% off).
-
-```bash
-# 1. generate candidates (thinking + response kept separately) — per dataset
-python api_generation/claude_generate.py --dataset omnimath      --limit 300
-python api_generation/claude_generate.py --dataset olympiadbench --limit 300
-python api_generation/claude_generate.py --dataset math          --limit 400
-
-# 2. assign process scores (LLM-as-judge) → enables Type B detection
-python api_generation/score_candidates.py --in data/raw/candidates_raw.jsonl \
-                                          --out data/raw/candidates_raw.jsonl
-
-# 3. classify + build contrastive pairs
-python main/data_pipeline.py --raw data/raw/candidates_raw.jsonl
-
-# 4. baseline → train → analyse
-python experiments/baseline_umap.py
-python main/train.py            # batch 64, 10 epochs, early stopping
-python main/analyse.py
-```
-
-Pipeline order is **generate → score → data_pipeline → train → analyse**. Scoring
-must run before `data_pipeline` because Type B = answer correct *and* process
-score < 10.
-
-## Layout
-
-```
-main/data_pipeline.py        Candidate/ContrastivePair, answer extraction, A/B/D typing
-main/corruption.py           approach / step / conclusion corruptions
-main/ridae.py                encoder + bottleneck + decoder + reconstruction/MNR/triplet
-main/train.py                training loop (by-problem split, warmup, early stopping)
-main/analyse.py              UMAP, linear probe, dimension probe, interpolation
-experiments/baseline_umap.py   the "run-first" control
-api_generation/claude_generate.py  Claude extended-thinking generation (Batch API)
-api_generation/score_candidates.py LLM-as-judge process scorer (Batch API)
-scripts/make_synthetic_corpus.py   offline pipeline test corpus
-```
-
-## Status
-
-All modules verified end-to-end on the synthetic corpus (MPS). Next real step:
-generate the OmniMath pilot with Claude, then run the baseline on real candidates.
-See `RiDAE_Roadmap.docx` for the full 6-phase plan (~8 weeks, target ICLR 2027).
+*(Repository URL remains `github.com/akshitveena/ridae`; "PARALLAX" is the project/paper name.)*
