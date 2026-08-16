@@ -274,6 +274,39 @@ the PRM's residual stream, R² 0.92, localized to mid-layers — a real interpre
 a coherent negative (it is not a single removable direction), the latter agreeing across both
 models. Not the "one clean ablation" best case, but a consistent, honest mechanistic account.
 
+## Phase R3 — Threshold-free metrics + over-control check (reviewer item R3)
+
+`experiments/r3_metrics.py`, CPU. Two reviewer-requested robustness analyses.
+
+**R3a — AUC/AUPRC alongside f1_B (the f1 collapse overstates; AUC is the honest metric).**
+
+| PRM | raw f1 | raw AUC | raw AP | ctl f1 | ctl AUC | ctl AP |
+|---|---|---|---|---|---|---|
+| Math-Shepherd-7B | 0.533 | 0.757 | 0.521 | 0.446 | 0.651 | 0.401 |
+| RLHFlow-8B | 0.588 | 0.815 | 0.611 | 0.501 | 0.687 | 0.451 |
+
+Under confound control, threshold-free **AUROC deflates ~0.10** (0.76→0.65, 0.82→0.69) and AUPRC
+~0.12–0.16 — real but modest. The panel's headline **f1 "0.43→0.08" was partly a threshold
+artifact** (a fitted LR on the residualized 1-D score collapses to near-all-negative); AUC matches
+the panel's raw/ctl (0.76/0.65) and is stable across threshold rules. **Correction for the paper:
+report AUROC/AUPRC deflation as the primary claim and note f1 magnitude is threshold-dependent** —
+removes the "cherry-picked threshold" attack surface. The critique stands; it's just stated
+threshold-free.
+
+**R3b — over-control check: is the `dataset` variable doing the work?** Re-ran the difficulty-only
+null and the confound-controlled probe (frozen step-SDAE rep) WITH vs WITHOUT the dataset dummy:
+
+| confound set | null f1 | ctl probe f1 |
+|---|---|---|
+| WITH dataset | 0.606 | 0.683 |
+| WITHOUT dataset | 0.587 | 0.712 |
+
+**Δ controlled on dropping dataset = +0.029 (< 0.05) → NOT an over-control artifact** (pre-committed
+threshold). Removing the coarse dataset variable barely changes the controlled score, so the
+control removes *within-dataset* difficulty, not just a legitimate 4-way source signal; W2
+(within-dataset control) corroborates. (Absolute f1s run high here: `all_metrics` uses a base-rate
+quantile threshold, not the fitted-LR threshold — only the WITH-vs-WITHOUT delta is interpreted.)
+
 ## Phase E1 — PRM panel (audit E1/W5): confound inflation across the field
 
 2c generalised: score multiple open PRMs (different labs, different base models) through the
