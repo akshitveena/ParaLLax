@@ -50,7 +50,7 @@ def main():
     from sklearn.linear_model import Ridge, LogisticRegression
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.model_selection import cross_val_score
-    from sklearn.metrics import f1_score, roc_auc_score
+    from sklearn.metrics import f1_score, roc_auc_score, average_precision_score
     from sklearn.preprocessing import StandardScaler, OneHotEncoder
     out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
     KS = [int(k) for k in args.ks.split(",")]
@@ -126,9 +126,20 @@ def main():
             for s, l in zip(ss[i], recs[idx]["step_labels"]):
                 if l >= 0: fs.append(1 - s); fl.append(int(l))
         return roc_auc_score(fl, fs) if len(set(fl)) > 1 else float("nan")
+    ybin = (yk == "B").astype(int)
+    def auc_of(v):
+        _, va = sp(len(v)); return roc_auc_score(ybin[va], v[va])          # threshold-free
+    def ap_of(v):
+        _, va = sp(len(v)); return average_precision_score(ybin[va], v[va])
     bv = cmin(scores); tr, _ = sp(len(bv)); beta = np.linalg.lstsq(CFk[tr], bv[tr], rcond=None)[0]
-    BASE = {"raw": f1v(bv), "ctl": f1v(bv - CFk @ beta), "gate": gate(scores)}
-    print(f"[M3] BASELINE raw {BASE['raw']:.3f} ctl {BASE['ctl']:.3f} gate {BASE['gate']:.3f}")
+    bvc = bv - CFk @ beta
+    BASE = {"raw": f1v(bv), "ctl": f1v(bvc), "gate": gate(scores),
+            "raw_auc": auc_of(bv), "ctl_auc": auc_of(bvc),
+            "raw_ap": ap_of(bv), "ctl_ap": ap_of(bvc)}
+    print(f"[M3] BASELINE  raw f1 {BASE['raw']:.3f} / AUC {BASE['raw_auc']:.3f} / AP {BASE['raw_ap']:.3f}")
+    print(f"[M3] CONTROLLED ref  f1 {BASE['ctl']:.3f} / AUC {BASE['ctl_auc']:.3f} / AP {BASE['ctl_ap']:.3f}   gate {BASE['gate']:.3f}")
+    print(f"[M3] HONEST convergence target = CONTROLLED AUC {BASE['ctl_auc']:.3f}  "
+          f"(the f1 {BASE['ctl']:.3f} is the degenerate-threshold value R3a flagged — do NOT converge to it)")
     assert BASE["gate"] > 0.65, "baseline gate too low — stack problem, abort"
 
     # ---- difficulty subspace basis (nested top-k), PLS on [log_length, n_steps] ----
@@ -161,17 +172,20 @@ def main():
         return out_sc, {li: np.array(v) for li, v in dh.items()}
 
     # ---- M3a subspace ablation sweep ----
-    print("[M3a] subspace ablation sweep (raw f1_B / ctl / gate vs k):")
+    print("[M3a] subspace ablation sweep — THRESHOLD-FREE (raw f1 / raw AUC / raw AP / gate vs k):")
+    print(f"      convergence target = controlled AUC {BASE['ctl_auc']:.3f}  |  chance AUC 0.500")
     sweep = {}
     for k in KS:
         B = Wd[:, :k]; mu = (acts[peak] @ B).mean(0)
         asc, _ = rescore(subspace_hook(B, mu))
-        av = cmin(asc); tr, _ = sp(len(av)); bta = np.linalg.lstsq(CFk[tr], av[tr], rcond=None)[0]
-        sweep[k] = {"raw": f1v(av), "ctl": f1v(av - CFk @ bta), "gate": gate(asc)}
-        print(f"   k={k:>3}: raw={sweep[k]['raw']:.3f} ctl={sweep[k]['ctl']:.3f} "
-              f"gate={sweep[k]['gate']:.3f}   (base raw {BASE['raw']:.3f} / ctl {BASE['ctl']:.3f} / gate {BASE['gate']:.3f})")
-    print("   READING: the confound-clean regime is where raw->~ctl WHILE gate stays ~baseline")
-    print("   (gate collapsing => competence removed, not just confound = over-ablation).")
+        av = cmin(asc)
+        sweep[k] = {"raw": f1v(av), "raw_auc": auc_of(av), "raw_ap": ap_of(av), "gate": gate(asc)}
+        print(f"   k={k:>3}: raw_f1={sweep[k]['raw']:.3f}  raw_AUC={sweep[k]['raw_auc']:.3f}  "
+              f"raw_AP={sweep[k]['raw_ap']:.3f}  gate={sweep[k]['gate']:.3f}")
+    print(f"   READING: does raw_AUC fall to the controlled AUC ({BASE['ctl_auc']:.3f}) WHILE the gate holds?")
+    print("     yes -> convergence to control is real, threshold-free (claim survives R3a).")
+    print("     raw_AUC blows PAST it toward 0.50 as the gate collapses -> the f1 'convergence' was a")
+    print("     degenerate-threshold artifact; the ablation over-suppresses (removes competence too).")
 
     # ---- M3b self-repair: with the largest-k ablation live, re-probe downstream R² ----
     kmax = max(KS); B = Wd[:, :kmax]; mu = (acts[peak] @ B).mean(0)
