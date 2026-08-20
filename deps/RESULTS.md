@@ -274,6 +274,24 @@ the PRM's residual stream, R² 0.92, localized to mid-layers — a real interpre
 a coherent negative (it is not a single removable direction), the latter agreeing across both
 models. Not the "one clean ablation" best case, but a consistent, honest mechanistic account.
 
+## Phase E4 — Non-linear confound control (reviewer ask #4): is the surviving signal nonlinear leakage?
+
+`experiments/parallax-followup/experiments/e4_nonlinear_control.py` (+ `e4_run.py` wiring). Frozen
+Step-SDAE rep, 4-confound set, cross-fit residualization; CPU.
+
+| control | null f1B | null AUC | controlled f1B | controlled AUC | residualizer held-out R² |
+|---|---|---|---|---|---|
+| linear | 0.482 | 0.756 | 0.523 | 0.685 | 0.33 |
+| KRR (RBF, nonlinear) | 0.525 | 0.748 | 0.500 | 0.661 | 0.40 |
+
+**Signal robust to nonlinear control.** (i) The difficulty-only null does NOT jump under nonlinear
+modelling (AUC 0.756→0.748) — difficulty's predictive power is essentially linear, so linear control
+was not missing hidden nonlinear difficulty. (ii) Nonlinear (KRR) residualization causes only a
+small extra drop (controlled AUC 0.685→0.661) and the residualizer's held-out R² is 0.40 — far from
+1.0 — so this is not an over-control artifact regressing out everything. The surviving validity
+signal is not nonlinear difficulty leakage. Caveat: run on the frozen rep (0.497-regime); the e2e
+0.591 rep needs the e2e codes (box) — mechanism identical.
+
 ## Phase R3 — Threshold-free metrics + over-control check (reviewer item R3)
 
 `experiments/r3_metrics.py`, CPU. Two reviewer-requested robustness analyses.
