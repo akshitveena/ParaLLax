@@ -64,13 +64,18 @@ def main():
         t0 = time.time()
         for pi, p in enumerate(probs):
             msgs = [{"role": "system", "content": SYS}, {"role": "user", "content": p["statement"]}]
-            ids = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt").to(model.device)
+            enc = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt",
+                                          return_dict=True)
+            ids = enc["input_ids"].to(model.device)
+            attn = enc["attention_mask"].to(model.device)
+            plen = ids.shape[1]
             with torch.no_grad():
-                gen = model.generate(ids, do_sample=True, temperature=args.temperature, top_p=0.95,
+                gen = model.generate(input_ids=ids, attention_mask=attn, do_sample=True,
+                                     temperature=args.temperature, top_p=0.95,
                                      num_return_sequences=args.k, max_new_tokens=args.max_new,
                                      pad_token_id=tok.eos_token_id)
             for g in gen:
-                text = tok.decode(g[ids.shape[1]:], skip_special_tokens=True)
+                text = tok.decode(g[plen:], skip_special_tokens=True)
                 stats["sampled"] += 1
                 ans, _ = T.extract_answer(text)
                 ok, _ = T.answers_match(ans, p["gold"])
