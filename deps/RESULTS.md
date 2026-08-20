@@ -293,6 +293,29 @@ runner residualized *mean*-pooled codes (0.402, a pooling artifact), not the rea
 attention-pooled representation. The decision rule (factored reaches controlled f1B ≥ 0.591?) is
 unresolved pending that recompute; the raw-AUC result stands.
 
+## Phase E5 — Surgical erasure (reviewer M5): is the causal effect specific?
+
+`experiments/parallax-followup/experiments/mechinterp_e5.py` (A100). Layer 12; baseline subspace
+ablation vs validity-protecting "oblique" operator; re-score the 7B.
+
+| operator | val AUROC | Δval | step gate | Δgate | diff R² |
+|---|---|---|---|---|---|
+| unablated ref | 0.761 | — | 0.735 | — | 0.923 |
+| baseline ablation | 0.688 | −0.073 | 0.637 | −0.098 | 0.923 |
+| oblique (protect validity dir) | 0.690 | −0.072 | 0.639 | −0.096 | 0.923 |
+
+**No linear operator is surgical.** Both drop validity AUROC (~−0.07) AND the step gate (~−0.10)
+together; the validity-protecting oblique operator gives NO benefit over plain ablation (the
+difficulty subspace is ~orthogonal to the validity direction, so there was nothing to add back).
+diff R² is unchanged (0.923) because difficulty is redundantly encoded (Hydra) — a 16-dim erasure
+does not reduce full-vector length-decodability, so the val/gate drop mixes difficulty-removal with
+generic perturbation and cannot be cleanly separated. **Paper stance for M5: do NOT claim causal
+specificity — claim ENTANGLEMENT.** In this verifier difficulty, validity and step-competence are
+not linearly separable; no validity-preserving linear operator isolates the difficulty channel.
+This concedes the reviewer's "non-surgical" point cleanly and reframes it as the stronger entangled
+claim (consistent with §3.4 + self-repair). (LEACE skipped: concept-erasure not installed; the
+oblique operator already covers the validity-protection design.)
+
 ## Phase E4 — Non-linear confound control (reviewer ask #4): is the surviving signal nonlinear leakage?
 
 `experiments/parallax-followup/experiments/e4_nonlinear_control.py` (+ `e4_run.py` wiring). Frozen
