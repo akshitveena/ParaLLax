@@ -274,6 +274,25 @@ the PRM's residual stream, R² 0.92, localized to mid-layers — a real interpre
 a coherent negative (it is not a single removable direction), the latter agreeing across both
 models. Not the "one clean ablation" best case, but a consistent, honest mechanistic account.
 
+## Phase E2-followup — Factored architecture (reviewer ask #2): decouple content from validity
+
+`experiments/parallax-followup/experiments/e2_factored_architecture.py` (+ `e2_run.py`). Frozen
+recon-only (Variant R) encoder + trained validity readout; 5 seeds, CPU.
+
+| regime | validity AUC | Recall@1 |
+|---|---|---|
+| A frozen encoder + attention-pooled readout | **0.832 ± 0.025** | 0.996 (encoder unchanged) |
+| B + non-competing LoRA adapter | 0.831 ± 0.028 | 0.996 |
+| C shared e2e (known, Phase 2b) | 0.741 | 0.007 |
+
+**A frozen content-preserving encoder + a trained readout reaches HIGHER raw validity AUC (0.83)
+than the shared-bottleneck e2e (0.74) while preserving content (Recall@1 0.996)** — content and
+validity need not compete in one bottleneck. The adapter (B) ≈ plain readout (A): the LoRA pathway
+adds nothing. **Caveat (open):** the confound-controlled f1B here is not yet properly measured — the
+runner residualized *mean*-pooled codes (0.402, a pooling artifact), not the readout's
+attention-pooled representation. The decision rule (factored reaches controlled f1B ≥ 0.591?) is
+unresolved pending that recompute; the raw-AUC result stands.
+
 ## Phase E4 — Non-linear confound control (reviewer ask #4): is the surviving signal nonlinear leakage?
 
 `experiments/parallax-followup/experiments/e4_nonlinear_control.py` (+ `e4_run.py` wiring). Frozen
