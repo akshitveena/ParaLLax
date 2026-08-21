@@ -135,6 +135,37 @@ small, threshold-level classification gain (f1 0.416→0.497) and **essentially 
 *readout* on top of a content-preserving encoder (PRM as input feature, not a competing loss
 head) — rather than baking A/B into the bottleneck by gradient pressure.
 
+## Phase MP — Matched-pair discrimination (assumption-free) + trivial baseline (reviewer program)
+
+The single strongest, assumption-free result: hold difficulty constant BY DESIGN (coarsened exact
+matching) and test A-vs-B discrimination — no residualization, no modelling. (Our corpus is 1
+candidate/problem, so within-problem A/B pairs don't exist; CEM is the fallback.)
+
+**Matched pairs** — same dataset, EXACT step count, log-length within ±0.1 → **334 pairs**:
+
+| | pairwise A<B accuracy | 95% CI |
+|---|---|---|
+| Step-SDAE detector | **0.871** | [0.835, 0.904] |
+| difficulty-only null | 0.555 | [0.503, 0.608] |
+
+The detector discriminates at 0.87 with difficulty matched out; the difficulty-null is ~0.55 (near
+chance) — **this IS the controlled null Fig 1's caption says doesn't exist, killing M2, and it
+converts M1 from "you residualized a mediator" to "we held difficulty constant by design and signal
+survived."** Caveat: use held-out pairs for the final number (frozen detector saw some pairs in
+training; the null shares that exposure, and its 0.55 floor shows difficulty isn't the driver).
+
+**Trivial all-positive baseline** (f1 = 2p/(1+p)) vs difficulty-null vs step-SDAE, within dataset:
+
+| dataset | trivial f1 | difficulty-null | step-SDAE |
+|---|---|---|---|
+| MATH | 0.316 | 0.087 (below) | 0.448 (+0.132) |
+| Olympiad | 0.487 | 0.331 (below) | 0.662 (+0.175) |
+| OmniMath | 0.682 | 0.717 (+0.035) | 0.802 (+0.120) |
+
+Honest claim: the difficulty-null is at-or-below trivial (below on MATH/Olympiad, +0.035 on
+OmniMath), while step-SDAE clears trivial by a consistent +0.12–0.18. Removes the OmniMath caveat's
+sting: the null never *meaningfully* beats a constant classifier; the step-structured signal does.
+
 ## Phase W1 — Difficulty-only null model + stratified control (audit W1/W2/W12/W13)
 
 The null model the paper was missing. `experiments/difficulty_baseline.py`, 5 seeds, CPU.
