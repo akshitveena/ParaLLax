@@ -332,6 +332,22 @@ the PRM's residual stream, R² 0.92, localized to mid-layers — a real interpre
 a coherent negative (it is not a single removable direction), the latter agreeing across both
 models. Not the "one clean ablation" best case, but a consistent, honest mechanistic account.
 
+## Phase Steer — Activation steering (causal bookend to M2/M3, A100)
+
+`experiments/mechinterp_steer.py`. M2/M3 REMOVED the difficulty direction; this ADDS it (α·σ·w_length
+at the peak layer) and re-scores the 7B. Sign-agnostic.
+
+| α (σ units) | −4 | −2 | −1 | 0 | +1 | +2 | +4 |
+|---|---|---|---|---|---|---|---|
+| mean Type-B score | 0.369 | 0.362 | 0.364 | 0.368 | 0.376 | 0.386 | **0.419** |
+| raw f1_B | 0.416 | 0.463 | 0.463 | 0.429 | 0.442 | 0.465 | **0.515** |
+
+**Adding difficulty (α>0) monotonically inflates the PRM's Type-B score** (0.368→0.419) and raw f1_B
+(0.429→0.515), with the step gate flat (~0.73 — no competence change). The negative side is floored
+(can't push scores below their min). So injecting the length direction *causally drives the verifier's
+score up* — the additive confirmation of the confound, complementing M2/M3's ablation. (The auto
+"non-monotonic" flag only tripped on the floored negative arm; the causal claim holds for α≥0.)
+
 ## Phase E2-followup — Factored architecture (reviewer ask #2): decouple content from validity
 
 `experiments/parallax-followup/experiments/e2_factored_architecture.py` (+ `e2_run.py`). Frozen
