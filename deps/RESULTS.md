@@ -135,6 +135,33 @@ small, threshold-level classification gain (f1 0.416→0.497) and **essentially 
 *readout* on top of a content-preserving encoder (PRM as input feature, not a competing loss
 head) — rather than baking A/B into the bottleneck by gradient pressure.
 
+## Phase M4/m5/M7 — reviewer cluster (label provenance, leakage fix, selection pressure)
+
+**M4 — no judge circularity (labels are human).** `chain=='B'` iff a ProcessBench *human* per-step
+error label exists — agreement **1.000 across all splits incl. OmniMath**. The κ=0.60 judge was used
+only for validation, never for training/eval labels. The M4 premise ("OmniMath labels are LLM-judge")
+is false for this corpus; no re-run needed.
+
+**m5 — Table 4 leakage fixed (encoder retrained per held-out dataset).** Leave-one-DATASET-out,
+confound-controlled, leakage-free:
+
+| held-out | leakage-free AUC | f1_B | (leaky Table 4) |
+|---|---|---|---|
+| MATH | 0.562 | 0.300 | ~0.9 |
+| OlympiadBench | 0.615 | 0.426 | 0.898 |
+| OmniMath | 0.712 | 0.634 | 0.954 |
+
+The leaky 0.90+ was badly inflated. Honest cross-dataset transfer is **modest (0.56–0.71), strongest
+to OmniMath**. Replace Table 4's leaky numbers with these and soften "domain-independent validity
+axis" to "modest, above-chance cross-dataset transfer." An overclaim removed.
+
+**M7 — selection pressure (reward-hacking gradient, measured).** Math-Shepherd soundness score:
+corr(soundness, log_length) = **−0.513**, corr(soundness, validity[A]) = **+0.408** — tracks length
+more than validity; and its top-20% "most sound" picks are SHORTER (mean log-len 5.03) than even the
+true-sound Type-A solutions (5.45), i.e. it over-selects a length regime beyond validity. A policy
+optimising this PRM is pushed toward a length regime, not validity — the reward-hacking concern
+stated as a MEASURED tendency (answers M7 without an RL run; makes the E1 text-attack optional).
+
 ## Phase MP — Matched-pair discrimination (assumption-free) + trivial baseline (reviewer program)
 
 The single strongest, assumption-free result: hold difficulty constant BY DESIGN (coarsened exact
